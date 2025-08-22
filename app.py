@@ -123,59 +123,83 @@ def get_instagram_caption(url: str) -> str:
 def parse_recipe_from_caption(caption: str) -> Dict[str, Any]:
     """
     Intenta separar título, porciones, tiempo, ingredientes y método.
-    Soporta 'Ingredients:', 'Method:' y también 'Ingredientes:', 'Preparación:'/'Procedimiento:'.
+    Soporta EN/ES (Ingredients:, Method:, Ingredientes:, Preparación:, etc).
     """
     rec = {"titulo": "", "porciones": "", "tiempo": "", "ingredientes": [], "procedimiento": []}
     if not caption:
         return rec
 
-    # Título = primera línea no vacía
+    # Intento inicial con el parser básico
     lines = [l.strip() for l in caption.split("\n")]
     first_nonempty = next((l for l in lines if l), "")
     rec["titulo"] = first_nonempty
 
-    # Porciones / Serves
     m_serves = re.search(r"(Serves|Porciones|Rinde)\s*[:\-]?\s*([0-9]+)", caption, flags=re.IGNORECASE)
     if m_serves:
         rec["porciones"] = m_serves.group(2).strip()
 
-    # Tiempo / Takes
     m_time = re.search(r"(Takes|Tiempo)\s*[:\-]?\s*([0-9]+\s*\w+)", caption, flags=re.IGNORECASE)
     if m_time:
         rec["tiempo"] = m_time.group(2).strip()
 
-    # Secciones de ingredientes y método (EN/ES)
-    # Intentamos dividir por 'Ingredients:' y 'Method:'
-    ing_split = re.split(r"(Ingredients?:)", caption, flags=re.IGNORECASE)
-    if len(ing_split) >= 3:
-        # after 'Ingredients:'
-        after_ing = "".join(ing_split[2:])
-        # corta antes de 'Method:' o similar en ES
-        before_method = re.split(r"(Method:|Preparaci[oó]n:|Procedimiento:|Método:)", after_ing, flags=re.IGNORECASE)[0]
-        rec["ingredientes"] = [clean_bullet(x) for x in before_method.split("\n") if x.strip()]
-
-        # Método
-        method_part = re.split(r"(Method:|Preparaci[oó]n:|Procedimiento:|Método:)", after_ing, flags=re.IGNORECASE)
-        if len(method_part) >= 4:
-            method_text = "".join(method_part[3:])
-            rec["procedimiento"] = [clean_bullet(x) for x in method_text.split("\n") if x.strip()]
-    else:
-        # Alternativa: ES primero
-        ing_split_es = re.split(r"(Ingredientes?:)", caption, flags=re.IGNORECASE)
-        if len(ing_split_es) >= 3:
-            after_ing = "".join(ing_split_es[2:])
-            before_method = re.split(r"(Method:|Preparaci[oó]n:|Procedimiento:|Método:)", after_ing, flags=re.IGNORECASE)[0]
-            rec["ingredientes"] = [clean_bullet(x) for x in before_method.split("\n") if x.strip()]
-
-            method_part = re.split(r"(Method:|Preparaci[oó]n:|Procedimiento:|Método:)", after_ing, flags=re.IGNORECASE)
-            if len(method_part) >= 4:
-                method_text = "".join(method_part[3:])
-                rec["procedimiento"] = [clean_bullet(x) for x in method_text.split("\n") if x.strip()]
+    # Nueva lógica más robusta
+    sections = extract_recipe_sections(caption)
+    if sections["ingredients"]:
+        rec["ingredientes"] = [clean_bullet(x) for x in sections["ingredients"].split("\n") if x.strip()]
+    if sections["method"]:
+        rec["procedimiento"] = [clean_bullet(x) for x in sections["method"].split("\n") if x.strip()]
 
     return rec
 
-def clean_bullet(s: str) -> str:
-    return s.strip().lstrip("•-*–— ").strip()
+
+def extract_recipe_sections(text: str) -> Dict[str, str]:
+    """Extrae secciones de una receta escrita en inglés"""
+    sections = {"title": "", "servings": "", "time": "", "ingredients": "", "method": ""}
+
+    lines = text.split("\n")
+    method_started = False
+    ingredients_started = False
+    method_lines = []
+    ingredient_lines = []
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        if sections["title"] == "":
+            sections["title"] = line
+            continue
+
+        if line.lower().startswith("serves"):
+            sections["servings"] = line
+            continue
+
+        if line.lower().startswith("takes"):
+            sections["time"] = line
+            continue
+
+        if line.lower().startswith("ingredients"):
+            ingredients_started = True
+            method_started = False
+            continue
+
+        if ingredients_started and not line.lower().startswith("method"):
+            ingredient_lines.append(line)
+            continue
+
+        if line.lower().startswith("method"):
+            method_started = True
+            ingredients_started = False
+            continue
+
+        if method_started:
+            method_lines.append(line)
+
+    sections["ingredients"] = "\n".join(ingredient_lines)
+    sections["method"] = "\n".join(method_lines)
+
+    return sections
 
 # ========== Exportar recetas a Word ==========
 def exportar_recetas_a_word(recetas: List[Dict[str, Any]], nombre_archivo: str = "recetas_exportadas.docx") -> str:
@@ -624,3 +648,4 @@ elif pestanas == "Plan mensual":
                         file_name=archivo,
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     )
+
