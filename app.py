@@ -497,7 +497,7 @@ elif pestanas == "Ver recetas":
                         if st.button(btn_label, key=f"view_{idx}"):
                             st.session_state.view_idx = idx
                             st.session_state.editing_idx = None  # salir edición si estaba
-                            st.experimental_rerun()
+                            st.rerun()
 
         # Si hay una receta seleccionada para ver, mostrar detalle (botones arriba)
         view_idx = st.session_state.get("view_idx", None)
@@ -521,11 +521,10 @@ elif pestanas == "Ver recetas":
                         st.success(f"Receta '{titulo_elim}' eliminada.")
                         st.session_state.view_idx = None
                         st.session_state.editing_idx = None
-                        st.experimental_rerun()
+                        st.rerun()
                 with cedit:
                     if st.button("✏️ Editar", key=f"edit_top_{view_idx}"):
                         st.session_state.editing_idx = view_idx
-                        # prefills handled in the edit block below
 
                 # Si estamos editando esta receta, mostrar formulario de edición
                 if st.session_state.get("editing_idx") == view_idx:
@@ -533,7 +532,9 @@ elif pestanas == "Ver recetas":
                     r = receta
                     # usar claves específicas por índice para evitar conflicto
                     nt = st.text_input("Título", value=r.get("titulo",""), key=f"edit_titulo_{view_idx}")
-                    ncat = st.selectbox("Categoría", ["Sopa","Proteína","Arroz","Guarnición","Postre"], index=["Sopa","Proteína","Arroz","Guarnición","Postre"].index(r.get("categoria","Proteína")), key=f"edit_categoria_{view_idx}")
+                    ncat = st.selectbox("Categoría", ["Sopa","Proteína","Arroz","Guarnición","Postre"],
+                                        index=["Sopa","Proteína","Arroz","Guarnición","Postre"].index(r.get("categoria","Proteína")),
+                                        key=f"edit_categoria_{view_idx}")
                     npor = st.text_input("Porciones", value=r.get("porciones","No especificado"), key=f"edit_por_{view_idx}")
                     ntiempo = st.text_input("Tiempo", value=r.get("tiempo",""), key=f"edit_time_{view_idx}")
                     ning = st.text_area("Ingredientes (uno por línea)", value="\n".join(r.get("ingredientes",[])), key=f"edit_ing_{view_idx}")
@@ -547,7 +548,7 @@ elif pestanas == "Ver recetas":
                                 st.error("El título no puede quedar vacío.")
                             else:
                                 recetas = cargar_recetas()
-                                # reconfirm index within current list: intentar localizar por fecha/título
+                                # reconfirm index within current list: intentar localizar por posición
                                 if view_idx < len(recetas):
                                     recetas[view_idx]["titulo"] = nt.strip()
                                     recetas[view_idx]["categoria"] = ncat
@@ -559,13 +560,13 @@ elif pestanas == "Ver recetas":
                                     st.success("Receta actualizada.")
                                     st.session_state.editing_idx = None
                                     st.session_state.view_idx = view_idx  # mantiene vista
-                                    st.experimental_rerun()
+                                    st.rerun()
                                 else:
                                     st.error("No se pudo localizar la receta para actualizar.")
                     with cc2:
                         if st.button("Cancelar edición", key=f"cancel_edit_{view_idx}"):
                             st.session_state.editing_idx = None
-                            st.experimental_rerun()
+                            st.rerun()
 
                 else:
                     # Mostrar detalle (sin editar)
@@ -598,6 +599,7 @@ elif pestanas == "Exportar recetas":
         # Export Word
         if st.button("📄 Exportar a Word (recetario.docx)"):
             buffer = exportar_recetas_a_word(recetas)
+            # buffer es BytesIO
             st.download_button("Descargar Word", data=buffer, file_name="recetario.docx",
                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
