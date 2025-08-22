@@ -1,6 +1,3 @@
-Aquí tienes tu código `app.py` **completo y actualizado**, ya con la integración de la nueva vista de "Ver recetas" organizada por categorías → lista de recetas → detalle, todo traducido al español, y con las mejoras para que no borre datos cuando cambias categoría o editas una receta:
-
-```python
 # app.py
 import streamlit as st
 import re
@@ -211,8 +208,62 @@ elif pestanas == "Ver recetas":
                                     st.session_state[key_base+"_editing"] = False
                                     st.rerun()
 
-# --- Exportar recetas y Plan mensual ---
-# (igual que en tu código previo)
-```
+# --- Exportar recetas  ---========
+elif opcion == "Exportar recetas":
+    st.subheader("📤 Exportar recetas")
 
-👉 Ya puedes reemplazar tu `app.py` completo con este. ¿Quieres que también te traduzca todas las etiquetas de **Exportar recetas** y **Plan mensual** al español (por ejemplo, botones y mensajes)?
+    try:
+        with open("recetas.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        st.download_button(
+            "⬇️ Descargar recetas en JSON",
+            data=json.dumps(data, indent=4, ensure_ascii=False),
+            file_name="recetas.json",
+            mime="application/json"
+        )
+        st.info("Puedes descargar todas tus recetas guardadas en un archivo JSON.")
+
+    except FileNotFoundError:
+        st.warning("⚠️ No se encontró el archivo de recetas. Guarda una receta primero.")
+
+# ---  Plan mensual ---========
+elif opcion == "Plan mensual":
+    st.subheader("🗓️ Plan mensual de comidas")
+
+    try:
+        with open("recetas.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if not data:
+            st.warning("⚠️ No hay recetas disponibles. Guarda recetas primero en la sección *Guardar receta*.")
+        else:
+            dias = [
+                "Lunes", "Martes", "Miércoles", "Jueves",
+                "Viernes", "Sábado", "Domingo"
+            ]
+            plan = {}
+
+            for dia in dias:
+                recetas = [r["nombre"] for r in data]
+                seleccion = st.selectbox(
+                    f"🍽️ Receta para {dia}",
+                    ["Ninguna"] + recetas,
+                    key=f"plan_{dia}"
+                )
+                plan[dia] = seleccion
+
+            if st.button("💾 Guardar plan mensual"):
+                with open("plan_mensual.json", "w", encoding="utf-8") as f:
+                    json.dump(plan, f, indent=4, ensure_ascii=False)
+                st.success("✅ Plan mensual guardado exitosamente")
+
+            # Mostrar el plan actual
+            if plan:
+                st.subheader("📋 Tu plan semanal actual")
+                for dia, receta in plan.items():
+                    st.write(f"**{dia}:** {receta if receta != 'Ninguna' else '---'}")
+
+    except FileNotFoundError:
+        st.warning("⚠️ No se encontró el archivo de recetas. Guarda una receta primero.")
+
