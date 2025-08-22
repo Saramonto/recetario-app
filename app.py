@@ -2,143 +2,163 @@ import streamlit as st
 import requests
 from bs4 import BeautifulSoup
 import re
+import json
 import os
-from docx import Document
 
-# ========== FUNCIONES BASE ==========
+# Archivo para guardar las recetas
+ARCHIVO_JSON = "recetas.json"
 
-def limpiar_texto(texto):
-    texto = re.sub(r"@[A-Za-z0-9_]+", "", texto)
-    texto = re.sub(r"#\w+", "", texto)
-    texto = re.sub(r"[^\x00-\x7F]+", " ", texto)
-    return texto.strip()
+# Categorías disponibles
+CATEGORIAS = ["sopa", "proteina", "arroz", "guarnicion", "ensalada", "postre"]
+
+# --- FUNCIONES ---
+
+def extraer_receta(texto):
+    texto = texto.replace("\r", "").replace("\n", "\n")
+    lineas = texto.split("\n")
+    ingredientes = []
+    procedimiento = []
+    porciones = "No especificado"
+    titulo = None
+
+    recolectando_ingredientes = False
+
+    # Intentar sacar título del principio, si está todo en mayúscula o tras 'INGREDIENTES:' salteamos
+    if lineas:
+        posible_titulo = lineas[0].strip()
+        if 3 < len(posible_titulo) < 50 and "ingredientes" not in posible_titulo.lower():
+            titulo = posible_titulo
+
+    for linea in lineas:
+        linea = linea.strip()
+
+        if "ingredientes" in linea.lower():
+            recolectando_ingredientes = True
+            continue
+
+        if re.match(r"^\d+\.", linea):
+            recolectando_ingredientes = False
+            procedimiento.append(linea)
+            continue
+
+        if recolectando_ingredientes and linea:
+            ingredientes.append(linea)
+
+        if "porciones" in linea.lower():
+            partes = linea.split(":")
+            if len(partes) > 1:
+                porciones = partes[-1].strip()
+
+    return titulo, ingredientes, procedimiento, porciones
 
 def extraer_texto_desde_link(link):
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
+    headers = {"User-Agent": "Mozilla/5.0"}
     try:
         response = requests.get(link, headers=headers)
         soup = BeautifulSoup(response.text, 'html.parser')
 
         if "instagram.com" in link:
-            meta = soup.find("meta", attrs={"property": "og:description"}) or \
-                   soup.find("meta", attrs={"name": "description"})
+            meta = soup.find("meta", attrs={"property": "og:description"})
+            texto = meta["content"] if meta else "No se encontró descripción."
+            return extraer_receta(texto), link
+
         elif "tiktok.com" in link:
-            meta = soup.find("meta", attrs={"name": "description"}) or \
-                   soup.find("meta", attrs={"property": "og:description"})
+            meta = soup.find("meta", attrs={"name": "description"})
+            texto = meta["content"] if meta else "No se encontró descripción."
+            return (None, [], [], "No especificado"), link
+
         else:
-            return None
+            return (None, [], [], "No especificado"), link
 
-        if meta and "content" in meta.attrs:
-            return limpiar_texto(meta["content"])
-        return None
+    except Exception as e:
+        st.error(f"Error al procesar el link: {e}")
+        return (None, [], [], "No especificado"), link
 
-    except Exception:
-        return None
+def cargar_recetas():
+    if os.path.exists(ARCHIVO_JSON):
+        with open(ARCHIVO_JSON, "r", encoding="utf-8") as f:
+            try:
+                return json.load(f)
+            except json.JSONDecodeError:
+                return []
+    return []
 
-def extraer_titulo_de_texto(texto):
-    lineas = [l.strip() for l in texto.split("\n") if l.strip()]
-    if lineas:
-        posible_titulo = lineas[0]
-        if 3 <= len(posible_titulo) <= 50:
-            return posible_titulo
-    return None
+def guardar_receta(receta):
+    recetas = cargar_recetas()
+    recetas.append(receta)
+    with open(ARCHIVO_JSON, "w", encoding="utf-8") as f:
+        json.dump(recetas, f, ensure_ascii=False, indent=4)
 
-def extraer_ingredientes_y_procedimiento(texto):
-    lineas = texto.split("\n")
-    ingredientes = {}
-    procedimiento = []
-    porciones = "No especificado"
-    seccion_actual = None
-    modo_ingredientes = False
-    modo_procedimiento = False
+# --- INTERFAZ ---
 
-    for linea in lineas:
-        linea = linea.strip()
-        if "porciones" in linea.lower() or "rinde" in linea.lower():
-            partes = re.split(r":|-", linea)
-            if len(partes) > 1:
-                porciones = partes[-1].strip()
-        if re.match(r"^(ingredientes|ganache|para decorar|relleno|masa|salsa|cobertura)", linea.lower()):
-            seccion_actual = linea
-            modo_ingredientes = True
-            modo_procedimiento = False
-            if seccion_actual not in ingredientes:
-                ingredientes[seccion_actual] = []
-            continue
-        if re.match(r"^\d+\.", linea):
-            modo_ingredientes = False
-            modo_procedimiento = True
-        if modo_ingredientes:
-            if linea:
-                ingredientes.setdefault(seccion_actual or "Ingredientes generales", []).append(linea)
-            continue
-        if modo_procedimiento:
-            if linea:
-                procedimiento.append(linea)
-    return ingredientes, procedimiento, porciones
+st.title("📖 Recetario Online")
 
-def guardar_en_word(data, archivo="recetas.docx"):
-    if os.path.exists(archivo):
-        doc = Document(archivo)
-    else:
-        doc = Document()
+pestanas = st.sidebar.radio("Navegar por:", ["Agregar receta", "Ver recetas"])
 
-    doc.add_heading(data.get("categoria", "Categoría").capitalize(), level=1)
-    doc.add_heading(data.get("titulo", "Receta sin título"), level=2)
-    
-    doc.add_heading("Porciones", level=3)
-    doc.add_paragraph(data.get("porciones", "No especificado"))
+if pestanas == "Agregar receta":
+    st.header("Agregar nueva receta desde Instagram o TikTok")
 
-    doc.add_heading("Ingredientes", level=3)
-    for seccion, lista in data.get("ingredientes", {}).items():
-        doc.add_heading(seccion.capitalize(), level=4)
-        for ing in lista:
-            doc.add_paragraph(ing, style='List Bullet')
+    link = st.text_input("🔗 Ingresa el link de la receta (Instagram o TikTok)")
+    if link:
+        (titulo_extraido, ingredientes, procedimiento, porciones), fuente = extraer_texto_desde_link(link)
 
-    doc.add_heading("Procedimiento", level=3)
-    for paso in data.get("procedimiento", []):
-        doc.add_paragraph(paso, style='List Number')
+        if not titulo_extraido:
+            titulo_extraido = st.text_input("Nombre de la receta", "")
 
-    doc.add_paragraph("\n")
-    doc.save(archivo)
-    return True
-
-# ========== APP STREAMLIT ==========
-
-st.set_page_config(page_title="Recetario Web", layout="centered")
-st.title("📱 Recetario desde Instagram o TikTok")
-
-link = st.text_input("🔗 Pegá el link de la receta:")
-if st.button("Extraer receta"):
-    if not link:
-        st.warning("Por favor, ingresá un link.")
-    else:
-        texto = extraer_texto_desde_link(link)
-        if not texto:
-            st.error("No se pudo extraer texto del link.")
         else:
-            titulo_sugerido = extraer_titulo_de_texto(texto) or ""
-            ingredientes, procedimiento, porciones = extraer_ingredientes_y_procedimiento(texto)
+            st.write(f"**Título extraído:** {titulo_extraido}")
 
-            st.success("✅ Receta detectada correctamente.")
-            with st.form("guardar_receta_form"):
-                titulo = st.text_input("📌 Título de la receta:", value=titulo_sugerido)
-                categorias = ["sopa", "proteina", "arroz", "guarnicion", "ensalada", "postre"]
-                categoria = st.selectbox("📂 Categoría:", categorias)
-                mostrar_texto = st.text_area("📄 Texto completo extraído:", value=texto, height=200)
+        categoria = st.selectbox("Categoría", CATEGORIAS)
 
-                guardar = st.form_submit_button("Guardar receta")
-                if guardar:
-                    data = {
-                        "fuente": link,
-                        "titulo": titulo,
-                        "categoria": categoria,
-                        "ingredientes": ingredientes,
-                        "procedimiento": procedimiento,
-                        "porciones": porciones
-                    }
-                    guardar_en_word(data)
-                    st.success("💾 Receta guardada en 'recetas.docx'")
+        st.write(f"**Porciones:** {porciones}")
+        st.write("**Ingredientes:**")
+        for i in ingredientes:
+            st.write("-", i)
+        st.write("**Procedimiento:**")
+        for p in procedimiento:
+            st.write(p)
+
+        guardar = st.button("Guardar receta")
+        if guardar:
+            if not titulo_extraido:
+                st.error("Por favor, ingresa un nombre para la receta.")
+            else:
+                receta_guardar = {
+                    "titulo": titulo_extraido,
+                    "categoria": categoria,
+                    "porciones": porciones,
+                    "ingredientes": ingredientes,
+                    "procedimiento": procedimiento,
+                    "fuente": fuente
+                }
+                guardar_receta(receta_guardar)
+                st.success("✅ Receta guardada correctamente!")
+
+elif pestanas == "Ver recetas":
+    st.header("Recetas guardadas por categoría")
+
+    recetas = cargar_recetas()
+    if not recetas:
+        st.info("No hay recetas guardadas aún.")
+    else:
+        categorias_encontradas = sorted(list(set(r["categoria"] for r in recetas)))
+        categoria_seleccionada = st.selectbox("Filtrar por categoría", ["Todas"] + categorias_encontradas)
+
+        if categoria_seleccionada == "Todas":
+            recetas_filtradas = recetas
+        else:
+            recetas_filtradas = [r for r in recetas if r["categoria"] == categoria_seleccionada]
+
+        for receta in recetas_filtradas:
+            with st.expander(f'{receta["titulo"]}'):
+                st.markdown(f"**Categoría:** {receta['categoria'].capitalize()}")
+                st.markdown(f"**Porciones:** {receta['porciones']}")
+                st.markdown("**Ingredientes:**")
+                for ing in receta["ingredientes"]:
+                    st.write("-", ing)
+                st.markdown("**Procedimiento:**")
+                for paso in receta["procedimiento"]:
+                    st.write(paso)
+                st.markdown(f"[Fuente]({receta['fuente']})")
+
 
