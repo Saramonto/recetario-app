@@ -120,6 +120,12 @@ def get_instagram_caption(url: str) -> str:
     return ""  # vacío -> permitirá pegar manualmente
 
 # ========== Parseo de recetas desde caption (ES/EN) ==========
+def clean_bullet(text: str) -> str:
+    """
+    Limpia caracteres de viñeta, guiones u otros símbolos al inicio de cada línea.
+    """
+    return re.sub(r"^[\-\•\●\·\*]+\s*", "", text).strip()
+
 def parse_recipe_from_caption(caption: str) -> Dict[str, Any]:
     """
     Intenta separar título, porciones, tiempo, ingredientes y método.
@@ -648,4 +654,5 @@ elif pestanas == "Plan mensual":
                         file_name=archivo,
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     )
+
 
