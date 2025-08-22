@@ -139,7 +139,22 @@ elif pestanas == "Ver recetas":
         categoria_seleccionada = st.selectbox("Selecciona categoría", ["Seleccionar opción"] + categorias_encontradas)
 
         if categoria_seleccionada == "Seleccionar opción":
-            st.info("Por favor, selecciona una categoría
+            st.info("Por favor, selecciona una categoría para ver las recetas.")
+        else:
+            # Mostrar recetas agrupadas por categoría seleccionada
+            recetas_filtradas = [r for r in recetas if r["categoria"] == categoria_seleccionada]
 
-
-
+            if not recetas_filtradas:
+                st.warning(f"No hay recetas en la categoría '{categoria_seleccionada}'.")
+            else:
+                st.subheader(f"Categoría: {categoria_seleccionada.capitalize()}")
+                for receta in recetas_filtradas:
+                    with st.expander(f'{receta["titulo"]}'):
+                        st.markdown(f"**Porciones:** {receta['porciones']}")
+                        st.markdown("**Ingredientes:**")
+                        for ing in receta["ingredientes"]:
+                            st.write("-", ing)
+                        st.markdown("**Procedimiento:**")
+                        for paso in receta["procedimiento"]:
+                            st.write(paso)
+                        st.markdown(f"[Fuente]({receta['fuente']})")
