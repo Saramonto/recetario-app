@@ -26,6 +26,24 @@ except Exception:
 st.set_page_config(page_title="Recetario + Plan mensual", page_icon="🍽️", layout="wide")
 st.title("📚 Recetario desde Instagram/TikTok + 📅 Plan mensual")
 
+# ---------- Inicialización de estado seguro (no perder datos del formulario) ----------
+def init_form_state():
+    defaults = {
+        "link": "",
+        "caption_manual": "",
+        "titulo": "",
+        "porciones": "No especificado",
+        "tiempo": "",
+        "ingredientes_text": "",
+        "procedimiento_text": "",
+        "categoria": "Seleccionar opción",
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+init_form_state()
+
 # ========== Utilidades de almacenamiento ==========
 RECETAS_FILE = "recetas.json"
 
@@ -72,8 +90,6 @@ def ig_shortcode_from_url(url: str) -> Optional[str]:
     """
     try:
         parts = [p for p in url.split("/") if p.strip()]
-        # El shortcode suele ser el último fragmento no query
-        # Buscar el primer fragmento de longitud ~10-12 alfanumérica
         for p in reversed(parts):
             if re.fullmatch(r"[A-Za-z0-9_-]{5,20}", p):
                 return p
@@ -121,45 +137,11 @@ def get_instagram_caption(url: str) -> str:
 
 # ========== Parseo de recetas desde caption (ES/EN) ==========
 def clean_bullet(text: str) -> str:
-    """
-    Limpia caracteres de viñeta, guiones u otros símbolos al inicio de cada línea.
-    """
+    """Limpia caracteres de viñeta/guiones al inicio de la línea."""
     return re.sub(r"^[\-\•\●\·\*]+\s*", "", text).strip()
 
-def parse_recipe_from_caption(caption: str) -> Dict[str, Any]:
-    """
-    Intenta separar título, porciones, tiempo, ingredientes y método.
-    Soporta EN/ES (Ingredients:, Method:, Ingredientes:, Preparación:, etc).
-    """
-    rec = {"titulo": "", "porciones": "", "tiempo": "", "ingredientes": [], "procedimiento": []}
-    if not caption:
-        return rec
-
-    # Intento inicial con el parser básico
-    lines = [l.strip() for l in caption.split("\n")]
-    first_nonempty = next((l for l in lines if l), "")
-    rec["titulo"] = first_nonempty
-
-    m_serves = re.search(r"(Serves|Porciones|Rinde)\s*[:\-]?\s*([0-9]+)", caption, flags=re.IGNORECASE)
-    if m_serves:
-        rec["porciones"] = m_serves.group(2).strip()
-
-    m_time = re.search(r"(Takes|Tiempo)\s*[:\-]?\s*([0-9]+\s*\w+)", caption, flags=re.IGNORECASE)
-    if m_time:
-        rec["tiempo"] = m_time.group(2).strip()
-
-    # Nueva lógica más robusta
-    sections = extract_recipe_sections(caption)
-    if sections["ingredients"]:
-        rec["ingredientes"] = [clean_bullet(x) for x in sections["ingredients"].split("\n") if x.strip()]
-    if sections["method"]:
-        rec["procedimiento"] = [clean_bullet(x) for x in sections["method"].split("\n") if x.strip()]
-
-    return rec
-
-
 def extract_recipe_sections(text: str) -> Dict[str, str]:
-    """Extrae secciones de una receta escrita en inglés"""
+    """Extrae secciones de una receta en inglés a partir de la estructura básica."""
     sections = {"title": "", "servings": "", "time": "", "ingredients": "", "method": ""}
 
     lines = text.split("\n")
@@ -204,15 +186,70 @@ def extract_recipe_sections(text: str) -> Dict[str, str]:
 
     sections["ingredients"] = "\n".join(ingredient_lines)
     sections["method"] = "\n".join(method_lines)
-
     return sections
+
+def parse_recipe_from_caption(caption: str) -> Dict[str, Any]:
+    """
+    Separa título, porciones, tiempo, ingredientes y método.
+    Soporta EN/ES (Ingredients:, Method:, Ingredientes:, Preparación:/Procedimiento:).
+    """
+    rec = {"titulo": "", "porciones": "", "tiempo": "", "ingredientes": [], "procedimiento": []}
+    if not caption:
+        return rec
+
+    # Título = primera línea no vacía
+    lines = [l.strip() for l in caption.split("\n")]
+    first_nonempty = next((l for l in lines if l), "")
+    rec["titulo"] = first_nonempty
+
+    # Porciones / Serves
+    m_serves = re.search(r"(Serves|Porciones|Rinde)\s*[:\-]?\s*([0-9]+)", caption, flags=re.IGNORECASE)
+    if m_serves:
+        rec["porciones"] = m_serves.group(2).strip()
+
+    # Tiempo / Takes
+    m_time = re.search(r"(Takes|Tiempo)\s*[:\-]?\s*([0-9]+\s*\w+)", caption, flags=re.IGNORECASE)
+    if m_time:
+        rec["tiempo"] = m_time.group(2).strip()
+
+    # EN primero
+    ing_split = re.split(r"(Ingredients?:)", caption, flags=re.IGNORECASE)
+    if len(ing_split) >= 3:
+        after_ing = "".join(ing_split[2:])
+        before_method = re.split(r"(Method:|Preparaci[oó]n:|Procedimiento:|Método:)", after_ing, flags=re.IGNORECASE)[0]
+        rec["ingredientes"] = [clean_bullet(x) for x in before_method.split("\n") if x.strip()]
+
+        method_part = re.split(r"(Method:|Preparaci[oó]n:|Procedimiento:|Método:)", after_ing, flags=re.IGNORECASE)
+        if len(method_part) >= 4:
+            method_text = "".join(method_part[3:])
+            rec["procedimiento"] = [clean_bullet(x) for x in method_text.split("\n") if x.strip()]
+    else:
+        # ES
+        ing_split_es = re.split(r"(Ingredientes?:)", caption, flags=re.IGNORECASE)
+        if len(ing_split_es) >= 3:
+            after_ing = "".join(ing_split_es[2:])
+            before_method = re.split(r"(Method:|Preparaci[oó]n:|Procedimiento:|Método:)", after_ing, flags=re.IGNORECASE)[0]
+            rec["ingredientes"] = [clean_bullet(x) for x in before_method.split("\n") if x.strip()]
+
+            method_part = re.split(r"(Method:|Preparaci[oó]n:|Procedimiento:|Método:)", after_ing, flags=re.IGNORECASE)
+            if len(method_part) >= 4:
+                method_text = "".join(method_part[3:])
+                rec["procedimiento"] = [clean_bullet(x) for x in method_text.split("\n") if x.strip()]
+
+    # Refuerzo con el extractor de secciones EN (para casos rebeldes)
+    sections = extract_recipe_sections(caption)
+    if sections.get("ingredients") and not rec["ingredientes"]:
+        rec["ingredientes"] = [clean_bullet(x) for x in sections["ingredients"].split("\n") if x.strip()]
+    if sections.get("method") and not rec["procedimiento"]:
+        rec["procedimiento"] = [clean_bullet(x) for x in sections["method"].split("\n") if x.strip()]
+
+    return rec
 
 # ========== Exportar recetas a Word ==========
 def exportar_recetas_a_word(recetas: List[Dict[str, Any]], nombre_archivo: str = "recetas_exportadas.docx") -> str:
     doc = Document()
     asegurar_estilos_docx(doc)
 
-    # Agrupar por categoría y exportar
     categorias = sorted(set([r.get('categoria', 'Sin categoría') for r in recetas]))
     for categoria in categorias:
         doc.add_paragraph(categoria, style='Titulo1')
@@ -232,7 +269,6 @@ def exportar_recetas_a_word(recetas: List[Dict[str, Any]], nombre_archivo: str =
 
             doc.add_paragraph("Procedimiento:", style='Titulo3')
             pasos = r.get('procedimiento', [])
-            # Numerar pasos si no vienen numerados
             for i, paso in enumerate(pasos, 1):
                 if re.match(r"^\d+\.", paso.strip()):
                     doc.add_paragraph(paso, style='Normal')
@@ -273,7 +309,6 @@ PROTEIN_FAMILIES = {
         "soya", "soja", "tofu", "tempeh", "edamame"
     ],
 }
-
 FAMILY_PRIORITY = list(PROTEIN_FAMILIES.keys()) + ["mixta/otra"]
 
 def detectar_familia_proteina(ingredientes: List[str]) -> str:
@@ -286,7 +321,6 @@ def detectar_familia_proteina(ingredientes: List[str]) -> str:
                 break
     if not hits:
         return "mixta/otra"
-    # prioriza según orden FAMILY_PRIORITY
     for fam in FAMILY_PRIORITY:
         if fam in hits:
             return fam
@@ -306,7 +340,6 @@ def generar_plan_mensual(
     - Si es viernes -> familia 'pescado' (si está activado y hay recetas).
     - Si es jueves -> familia 'frijoles/legumbres' (si está activado y hay recetas).
     """
-    # Clasificar por categoría
     por_cat: Dict[str, List[Dict[str, Any]]] = {}
     for r in recetas:
         por_cat.setdefault(r.get("categoria", ""), []).append(r)
@@ -318,7 +351,6 @@ def generar_plan_mensual(
     ensaladas = por_cat.get("Ensalada", [])
     postres = por_cat.get("Postre", [])
 
-    # Precalcular familia para proteínas
     prot_ext = []
     for p in proteinas:
         fam = detectar_familia_proteina(p.get("ingredientes", []))
@@ -334,50 +366,41 @@ def generar_plan_mensual(
         day_date = date(year, month, d)
         weekday_idx = day_date.weekday()  # 0=Lunes ... 6=Domingo
 
-        # Restricciones por día
         required_family: Optional[str] = None
-        if pescado_viernes and weekday_idx == 4:   # Viernes
+        if pescado_viernes and weekday_idx == 4:
             required_family = "pescado"
-        if frijoles_jueves and weekday_idx == 3:  # Jueves
+        if frijoles_jueves and weekday_idx == 3:
             required_family = "frijoles/legumbres"
 
         day_menu: Dict[str, Any] = {}
 
-        # SOPA (si hay) y evitar repetir la misma de ayer
         if sopas:
             soup_options = [s for s in sopas if s.get("titulo") != last_soup_title] or sopas
             sopa_pick = random.choice(soup_options)
             day_menu["Sopa"] = sopa_pick.get("titulo", "Sopa")
             last_soup_title = sopa_pick.get("titulo")
 
-        # PROTEÍNA (reglas de familia + no repetir familia de ayer)
         prot_pool = prot_ext[:]
         if required_family:
             pool_req = [p for p in prot_pool if p["_familia"] == required_family]
             if pool_req:
                 prot_pool = pool_req
 
-        # evitar repetir familia con ayer
         pool_no_rep = [p for p in prot_pool if p["_familia"] != last_prot_family] or prot_pool
         if pool_no_rep:
             p_pick = random.choice(pool_no_rep)
             day_menu["Proteína"] = f"{p_pick.get('titulo', 'Proteína')} (familia: {p_pick['_familia']})"
             last_prot_family = p_pick["_familia"]
 
-        # GUARNICIÓN y/o ARROZ
         if guarniciones:
             g_pick = random.choice(guarniciones)
             day_menu["Guarnición"] = g_pick.get("titulo", "Guarnición")
         if arroces:
             a_pick = random.choice(arroces)
             day_menu["Arroz"] = a_pick.get("titulo", "Arroz")
-
-        # ENSALADA
         if ensaladas:
             e_pick = random.choice(ensaladas)
             day_menu["Ensalada"] = e_pick.get("titulo", "Ensalada")
-
-        # POSTRE
         if postres:
             postre_pick = random.choice(postres)
             day_menu["Postre"] = postre_pick.get("titulo", "Postre")
@@ -409,7 +432,6 @@ def exportar_plan_a_word(plan: List[Dict[str, Any]], year: int, month: int) -> s
         titulo_dia = f"{fecha_dt.strftime('%Y-%m-%d')} - {dia['dia_es']}"
         doc.add_paragraph(titulo_dia, style="Titulo2")
 
-        # Secciones
         for seccion in ["Sopa","Proteína","Guarnición","Arroz","Ensalada","Postre"]:
             if seccion in dia["menu"]:
                 doc.add_paragraph(seccion + ":", style="Titulo3")
@@ -428,67 +450,95 @@ pestanas = st.sidebar.radio(
     ["Nueva receta", "Ver recetas", "Exportar recetas", "Plan mensual"]
 )
 
-# ========== UI: Nueva receta ==========
+# ========== UI: Nueva receta (con estado persistente) ==========
 if pestanas == "Nueva receta":
     st.header("Agregar nueva receta desde enlace (Instagram/TikTok)")
 
-    link = st.text_input("Ingresa el link del post (Instagram o TikTok):")
-    col_a, col_b = st.columns([1,1])
+    st.text_input("Ingresa el link del post (Instagram o TikTok):", key="link")
 
-    caption_detectado = ""
-    with col_a:
+    cA, cB, cC = st.columns([1,1,1])
+    with cA:
         if st.button("Leer descripción del enlace"):
-            if "instagram.com" in link:
-                caption_detectado = get_instagram_caption(link)
-                if not caption_detectado:
+            if "instagram.com" in st.session_state.link:
+                caption = get_instagram_caption(st.session_state.link)
+                if caption:
+                    st.session_state.caption_manual = caption
+                    parsed = parse_recipe_from_caption(caption)
+                    # Solo sobreescribir si el parser trajo algo
+                    if parsed.get("titulo"): st.session_state.titulo = parsed["titulo"]
+                    if parsed.get("porciones"): st.session_state.porciones = parsed["porciones"]
+                    if parsed.get("tiempo"): st.session_state.tiempo = parsed["tiempo"]
+                    if parsed.get("ingredientes"): st.session_state.ingredientes_text = "\n".join(parsed["ingredientes"])
+                    if parsed.get("procedimiento"): st.session_state.procedimiento_text = "\n".join(parsed["procedimiento"])
+                    st.success("Descripción leída y campos rellenados.")
+                else:
                     st.warning("No se pudo leer automáticamente la descripción. Pega el texto manualmente abajo.")
             else:
-                st.info("Para TikTok u otros sitios, pega el texto manualmente abajo.")
-    with col_b:
-        st.write("")  # espacio
+                st.info("Para TikTok u otros sitios, pega el texto manualmente abajo y usa el botón de la derecha.")
+    with cB:
+        if st.button("Rellenar desde el texto de abajo"):
+            cap = st.session_state.caption_manual or ""
+            if cap.strip():
+                parsed = parse_recipe_from_caption(cap)
+                if parsed.get("titulo"): st.session_state.titulo = parsed["titulo"]
+                if parsed.get("porciones"): st.session_state.porciones = parsed["porciones"]
+                if parsed.get("tiempo"): st.session_state.tiempo = parsed["tiempo"]
+                if parsed.get("ingredientes"): st.session_state.ingredientes_text = "\n".join(parsed["ingredientes"])
+                if parsed.get("procedimiento"): st.session_state.procedimiento_text = "\n".join(parsed["procedimiento"])
+                st.success("Campos rellenados desde el texto.")
+            else:
+                st.warning("No hay texto para analizar.")
+    with cC:
+        if st.button("Limpiar formulario"):
+            # Limpia el formulario sin tocar el archivo recetas.json
+            st.session_state.caption_manual = ""
+            st.session_state.titulo = ""
+            st.session_state.porciones = "No especificado"
+            st.session_state.tiempo = ""
+            st.session_state.ingredientes_text = ""
+            st.session_state.procedimiento_text = ""
+            st.session_state.categoria = "Seleccionar opción"
+            st.info("Formulario limpio. (No se borró nada de tus recetas guardadas)")
 
-    caption_manual = st.text_area(
-        "Descripción / receta (pega el texto si no se detectó automáticamente):",
-        value=caption_detectado, height=200
+    st.text_area(
+        "Descripción / receta (pega el texto completo si no se detectó automáticamente):",
+        key="caption_manual",
+        height=220
     )
 
-    # Parseo automático del caption pegado (si hay)
-    parsed = parse_recipe_from_caption(caption_manual) if caption_manual.strip() else {
-        "titulo":"", "porciones":"", "tiempo":"", "ingredientes":[], "procedimiento":[]
-    }
-
-    titulo_receta = st.text_input("Nombre de la receta:", value=parsed.get("titulo",""))
-    porciones = st.text_input("Porciones:", value=parsed.get("porciones","No especificado"))
-    tiempo = st.text_input("Tiempo (opcional):", value=parsed.get("tiempo",""))
+    st.subheader("📌 Datos de la receta")
+    st.text_input("Nombre de la receta:", key="titulo")
+    st.text_input("Porciones:", key="porciones")
+    st.text_input("Tiempo (opcional):", key="tiempo")
 
     categorias = ["Seleccionar opción", "Sopa", "Proteína", "Arroz", "Guarnición", "Ensalada", "Postre"]
-    categoria = st.selectbox("Selecciona categoría", categorias)
+    st.selectbox("Selecciona categoría", categorias, key="categoria")
 
     col1, col2 = st.columns(2)
     with col1:
-        ingredientes_txt = st.text_area("Ingredientes (uno por línea):", value="\n".join(parsed.get("ingredientes", [])))
+        st.text_area("Ingredientes (uno por línea):", key="ingredientes_text", height=200)
     with col2:
-        procedimiento_txt = st.text_area("Procedimiento (uno por línea):", value="\n".join(parsed.get("procedimiento", [])))
+        st.text_area("Procedimiento (uno por línea):", key="procedimiento_text", height=200)
 
     if st.button("Guardar receta"):
-        if categoria == "Seleccionar opción":
-            st.error("❌ Debes seleccionar una categoría válida.")
-        elif not titulo_receta.strip():
-            st.error("❌ Debes ingresar un nombre para la receta.")
+        if st.session_state.categoria == "Seleccionar opción":
+            st.error("❌ Debes seleccionar una categoría válida. (Tus datos se mantienen en el formulario)")
+        elif not st.session_state.titulo.strip():
+            st.error("❌ Debes ingresar un nombre para la receta. (Tus datos se mantienen en el formulario)")
         else:
             recetas = cargar_recetas()
             nueva = {
-                "fuente": link.strip(),
-                "titulo": capitalizar_oracion(titulo_receta.strip()),
-                "categoria": categoria.strip(),
-                "porciones": porciones.strip() if porciones.strip() else "No especificado",
-                "tiempo": tiempo.strip(),
-                "ingredientes": [i.strip() for i in ingredientes_txt.split("\n") if i.strip()],
-                "procedimiento": [p.strip() for p in procedimiento_txt.split("\n") if p.strip()]
+                "fuente": st.session_state.link.strip(),
+                "titulo": capitalizar_oracion(st.session_state.titulo.strip()),
+                "categoria": st.session_state.categoria.strip(),
+                "porciones": st.session_state.porciones.strip() or "No especificado",
+                "tiempo": st.session_state.tiempo.strip(),
+                "ingredientes": [i.strip() for i in st.session_state.ingredientes_text.split("\n") if i.strip()],
+                "procedimiento": [p.strip() for p in st.session_state.procedimiento_text.split("\n") if p.strip()]
             }
             recetas.append(nueva)
             guardar_recetas(recetas)
-            st.success("✅ Receta guardada exitosamente.")
+            st.success("✅ Receta guardada exitosamente. El formulario conserva tus datos.")
 
 # ========== UI: Ver recetas ==========
 elif pestanas == "Ver recetas":
@@ -498,7 +548,6 @@ elif pestanas == "Ver recetas":
     if not recetas:
         st.info("No hay recetas guardadas aún.")
     else:
-        # Filtro por categoría
         cats = ["Todas"] + sorted(set([r.get("categoria","Sin categoría") for r in recetas]))
         cat_sel = st.selectbox("Filtrar por categoría:", cats)
         if cat_sel == "Todas":
@@ -518,8 +567,7 @@ elif pestanas == "Ver recetas":
                 for i, paso in enumerate(r.get("procedimiento", []), 1):
                     st.write(f"{i}. {paso}")
 
-                # Controles
-                c1, c2, c3 = st.columns([1,1,1])
+                c1, c2, _ = st.columns([1,1,1])
                 with c1:
                     if st.button("Eliminar", key=key_base+"_del"):
                         recetas.remove(r)
@@ -529,10 +577,7 @@ elif pestanas == "Ver recetas":
                 with c2:
                     if st.button("Editar", key=key_base+"_edit"):
                         st.session_state[key_base+"_editing"] = True
-                with c3:
-                    st.write("")
 
-                # Formulario de edición inline
                 if st.session_state.get(key_base+"_editing", False):
                     st.info("Editando…")
                     ntitulo = st.text_input("Título", value=r.get("titulo",""), key=key_base+"_t")
@@ -641,7 +686,6 @@ elif pestanas == "Plan mensual":
                     d["notas"] = st.text_area("Notas", value=d.get("notas",""), key=key_nota)
 
             if st.button("Exportar plan a Word"):
-                # recoge notas actualizadas desde session_state
                 for d in plan:
                     key_nota = f"nota_{d['fecha']}"
                     if key_nota in st.session_state:
@@ -654,5 +698,3 @@ elif pestanas == "Plan mensual":
                         file_name=archivo,
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     )
-
-
