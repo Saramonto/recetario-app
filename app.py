@@ -36,7 +36,7 @@ def init_form_state():
         "ingredientes_text": "",
         "procedimiento_text": "",
         "categoria": "Seleccionar opción",
-        # view/edit state
+        # view/edit state (global index of recipe being viewed/edited)
         "view_idx": None,
         "editing_idx": None,
     }
@@ -492,97 +492,87 @@ elif pestanas == "Ver recetas":
                 else:
                     for idx in cat_indices[cat]:
                         r = recetas[idx]
-                        btn_label = r.get("titulo", "(sin título)")
-                        # Botón para ver el detalle (persistimos índice en session_state)
-                        if st.button(btn_label, key=f"view_{idx}"):
-                            st.session_state.view_idx = idx
-                            st.session_state.editing_idx = None  # salir edición si estaba
-                            st.rerun()
+                        # cada receta en su propio expander para ver detalles al instante
+                        with st.expander(r.get("titulo", "(sin título)")):
+                            # botones arriba (Eliminar / Editar)
+                            cdel, cedit, csp = st.columns([1,1,6])
+                            with cdel:
+                                if st.button("🗑️ Eliminar", key=f"del_{idx}"):
+                                    titulo_elim = r.get("titulo", "(sin título)")
+                                    # recargar para evitar desincronía
+                                    all_rec = cargar_recetas()
+                                    # si el índice sigue válido, eliminar
+                                    if idx < len(all_rec):
+                                        all_rec.pop(idx)
+                                        guardar_recetas(all_rec)
+                                        st.success(f"Receta '{titulo_elim}' eliminada.")
+                                    else:
+                                        st.warning("La receta no se encontró para eliminar.")
+                                    # limpiar posibles estados
+                                    if st.session_state.get("view_idx") == idx:
+                                        st.session_state.view_idx = None
+                                    if st.session_state.get("editing_idx") == idx:
+                                        st.session_state.editing_idx = None
+                                    st.experimental_rerun()
+                            with cedit:
+                                if st.button("✏️ Editar", key=f"edit_{idx}"):
+                                    st.session_state.editing_idx = idx
+                                    st.experimental_rerun()
 
-        # Si hay una receta seleccionada para ver, mostrar detalle (botones arriba)
-        view_idx = st.session_state.get("view_idx", None)
-        if view_idx is not None:
-            # Re-cargar por si hubo cambios
-            recetas = cargar_recetas()
-            if view_idx < 0 or view_idx >= len(recetas):
-                st.warning("La receta seleccionada ya no existe.")
-                st.session_state.view_idx = None
-            else:
-                receta = recetas[view_idx]
-                st.markdown("---")
-                # Botones arriba (Eliminar / Editar)
-                cdel, cedit, cempty = st.columns([1,1,6])
-                with cdel:
-                    if st.button("🗑️ Eliminar", key=f"del_top_{view_idx}"):
-                        # eliminar
-                        titulo_elim = receta.get("titulo","(sin título)")
-                        recetas.pop(view_idx)
-                        guardar_recetas(recetas)
-                        st.success(f"Receta '{titulo_elim}' eliminada.")
-                        st.session_state.view_idx = None
-                        st.session_state.editing_idx = None
-                        st.rerun()
-                with cedit:
-                    if st.button("✏️ Editar", key=f"edit_top_{view_idx}"):
-                        st.session_state.editing_idx = view_idx
+                            # Si se está editando esta receta, mostrar formulario de edición
+                            if st.session_state.get("editing_idx") == idx:
+                                st.info("Editando receta — modifica los campos y guarda o cancela.")
+                                # prefill from current data (use keys per idx)
+                                nt = st.text_input("Título", value=r.get("titulo",""), key=f"edit_titulo_{idx}")
+                                ncat = st.selectbox(
+                                    "Categoría",
+                                    ["Sopa","Proteína","Arroz","Guarnición","Postre"],
+                                    index=["Sopa","Proteína","Arroz","Guarnición","Postre"].index(r.get("categoria","Proteína")),
+                                    key=f"edit_categoria_{idx}"
+                                )
+                                npor = st.text_input("Porciones", value=r.get("porciones","No especificado"), key=f"edit_por_{idx}")
+                                ntiempo = st.text_input("Tiempo", value=r.get("tiempo",""), key=f"edit_time_{idx}")
+                                ning = st.text_area("Ingredientes (uno por línea)", value="\n".join(r.get("ingredientes",[])), key=f"edit_ing_{idx}")
+                                nproc = st.text_area("Procedimiento (uno por línea)", value="\n".join(r.get("procedimiento",[])), key=f"edit_proc_{idx}")
 
-                # Si estamos editando esta receta, mostrar formulario de edición
-                if st.session_state.get("editing_idx") == view_idx:
-                    st.info("Editando receta (botones arriba para guardar/cancelar).")
-                    r = receta
-                    # usar claves específicas por índice para evitar conflicto
-                    nt = st.text_input("Título", value=r.get("titulo",""), key=f"edit_titulo_{view_idx}")
-                    ncat = st.selectbox("Categoría", ["Sopa","Proteína","Arroz","Guarnición","Postre"],
-                                        index=["Sopa","Proteína","Arroz","Guarnición","Postre"].index(r.get("categoria","Proteína")),
-                                        key=f"edit_categoria_{view_idx}")
-                    npor = st.text_input("Porciones", value=r.get("porciones","No especificado"), key=f"edit_por_{view_idx}")
-                    ntiempo = st.text_input("Tiempo", value=r.get("tiempo",""), key=f"edit_time_{view_idx}")
-                    ning = st.text_area("Ingredientes (uno por línea)", value="\n".join(r.get("ingredientes",[])), key=f"edit_ing_{view_idx}")
-                    nproc = st.text_area("Procedimiento (uno por línea)", value="\n".join(r.get("procedimiento",[])), key=f"edit_proc_{view_idx}")
-
-                    cc1, cc2 = st.columns([1,1])
-                    with cc1:
-                        if st.button("💾 Guardar cambios", key=f"save_edit_{view_idx}"):
-                            # Validar
-                            if not nt.strip():
-                                st.error("El título no puede quedar vacío.")
+                                cc1, cc2 = st.columns([1,1])
+                                with cc1:
+                                    if st.button("💾 Guardar cambios", key=f"save_edit_{idx}"):
+                                        if not nt.strip():
+                                            st.error("El título no puede quedar vacío.")
+                                        else:
+                                            all_rec = cargar_recetas()
+                                            if idx < len(all_rec):
+                                                all_rec[idx]["titulo"] = nt.strip()
+                                                all_rec[idx]["categoria"] = ncat
+                                                all_rec[idx]["porciones"] = npor.strip() or "No especificado"
+                                                all_rec[idx]["tiempo"] = ntiempo.strip()
+                                                all_rec[idx]["ingredientes"] = [i.strip() for i in ning.split("\n") if i.strip()]
+                                                all_rec[idx]["procedimiento"] = [p.strip() for p in nproc.split("\n") if p.strip()]
+                                                guardar_recetas(all_rec)
+                                                st.success("Receta actualizada.")
+                                                st.session_state.editing_idx = None
+                                                st.experimental_rerun()
+                                            else:
+                                                st.error("No se pudo localizar la receta para actualizar.")
+                                with cc2:
+                                    if st.button("Cancelar edición", key=f"cancel_edit_{idx}"):
+                                        st.session_state.editing_idx = None
+                                        st.experimental_rerun()
                             else:
-                                recetas = cargar_recetas()
-                                # reconfirm index within current list: intentar localizar por posición
-                                if view_idx < len(recetas):
-                                    recetas[view_idx]["titulo"] = nt.strip()
-                                    recetas[view_idx]["categoria"] = ncat
-                                    recetas[view_idx]["porciones"] = npor.strip() or "No especificado"
-                                    recetas[view_idx]["tiempo"] = ntiempo.strip()
-                                    recetas[view_idx]["ingredientes"] = [i.strip() for i in ning.split("\n") if i.strip()]
-                                    recetas[view_idx]["procedimiento"] = [p.strip() for p in nproc.split("\n") if p.strip()]
-                                    guardar_recetas(recetas)
-                                    st.success("Receta actualizada.")
-                                    st.session_state.editing_idx = None
-                                    st.session_state.view_idx = view_idx  # mantiene vista
-                                    st.rerun()
-                                else:
-                                    st.error("No se pudo localizar la receta para actualizar.")
-                    with cc2:
-                        if st.button("Cancelar edición", key=f"cancel_edit_{view_idx}"):
-                            st.session_state.editing_idx = None
-                            st.rerun()
-
-                else:
-                    # Mostrar detalle (sin editar)
-                    st.subheader(receta.get("titulo","(sin título)"))
-                    st.write(f"**Categoría:** {receta.get('categoria','')}")
-                    st.write(f"**Porciones:** {receta.get('porciones','No especificado')}")
-                    if receta.get("tiempo"):
-                        st.write(f"**Tiempo:** {receta.get('tiempo')}")
-                    st.write("**Ingredientes:**")
-                    for ing in receta.get("ingredientes", []):
-                        st.write(f"- {ing}")
-                    st.write("**Procedimiento:**")
-                    for i, paso in enumerate(receta.get("procedimiento", []), 1):
-                        st.write(f"{i}. {paso}")
-                    st.write(f"*Agregada: {receta.get('fecha','') }*")
-                    st.markdown("---")
+                                # mostrar detalle completo (porciones, ingredientes, procedimiento)
+                                st.write(f"**Porciones:** {r.get('porciones','No especificado')}")
+                                if r.get("tiempo"):
+                                    st.write(f"**Tiempo:** {r.get('tiempo')}")
+                                st.write("**Ingredientes:**")
+                                for ing in r.get("ingredientes", []):
+                                    st.write(f"- {ing}")
+                                st.write("**Procedimiento:**")
+                                for i, paso in enumerate(r.get("procedimiento", []), 1):
+                                    st.write(f"{i}. {paso}")
+                                st.write(f"*Agregada: {r.get('fecha','')}*")
+                                # separación visual
+                                st.markdown("---")
 
 # ========== UI: Exportar recetas ==========
 elif pestanas == "Exportar recetas":
@@ -599,8 +589,7 @@ elif pestanas == "Exportar recetas":
         # Export Word
         if st.button("📄 Exportar a Word (recetario.docx)"):
             buffer = exportar_recetas_a_word(recetas)
-            # buffer es BytesIO
-            st.download_button("Descargar Word", data=buffer, file_name="recetario.docx",
+            st.download_button("Descargar Word", data=buffer.getvalue(), file_name="recetario.docx",
                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 # ========== UI: Plan mensual ==========
@@ -646,5 +635,5 @@ elif pestanas == "Plan mensual":
                     if key_nota in st.session_state:
                         d["notas"] = st.session_state[key_nota]
                 buffer = exportar_plan_a_word(plan, int(year), int(month))
-                st.download_button("⬇️ Descargar plan (Word)", data=buffer, file_name=f"plan_{year}_{month:02d}.docx",
+                st.download_button("⬇️ Descargar plan (Word)", data=buffer.getvalue(), file_name=f"plan_{year}_{month:02d}.docx",
                                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
