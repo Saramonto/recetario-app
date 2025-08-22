@@ -96,7 +96,6 @@ if pestanas == "Agregar receta":
 
         if not titulo_extraido:
             titulo_extraido = st.text_input("Nombre de la receta")
-
         else:
             st.write(f"**Título extraído:** {titulo_extraido}")
 
@@ -136,25 +135,20 @@ elif pestanas == "Ver recetas":
         st.info("No hay recetas guardadas aún.")
     else:
         categorias_encontradas = sorted(list(set(r["categoria"] for r in recetas)))
-        categoria_seleccionada = st.selectbox("Selecciona categoría", ["Seleccionar opción"] + categorias_encontradas)
 
-        if categoria_seleccionada == "Seleccionar opción":
-            st.info("Por favor, selecciona una categoría para ver las recetas.")
-        else:
-            # Mostrar recetas agrupadas por categoría seleccionada
-            recetas_filtradas = [r for r in recetas if r["categoria"] == categoria_seleccionada]
-
-            if not recetas_filtradas:
-                st.warning(f"No hay recetas en la categoría '{categoria_seleccionada}'.")
-            else:
-                st.subheader(f"Categoría: {categoria_seleccionada.capitalize()}")
-                for receta in recetas_filtradas:
-                    with st.expander(f'{receta["titulo"]}'):
-                        st.markdown(f"**Porciones:** {receta['porciones']}")
-                        st.markdown("**Ingredientes:**")
-                        for ing in receta["ingredientes"]:
-                            st.write("-", ing)
-                        st.markdown("**Procedimiento:**")
-                        for paso in receta["procedimiento"]:
-                            st.write(paso)
-                        st.markdown(f"[Fuente]({receta['fuente']})")
+        for categoria in categorias_encontradas:
+            with st.expander(f"Categoría: {categoria.capitalize()}"):
+                recetas_filtradas = [r for r in recetas if r["categoria"] == categoria]
+                if not recetas_filtradas:
+                    st.write("No hay recetas en esta categoría.")
+                else:
+                    for receta in recetas_filtradas:
+                        with st.expander(receta["titulo"]):
+                            st.markdown(f"**Porciones:** {receta['porciones']}")
+                            st.markdown("**Ingredientes:**")
+                            for ing in receta["ingredientes"]:
+                                st.write("-", ing)
+                            st.markdown("**Procedimiento:**")
+                            for paso in receta["procedimiento"]:
+                                st.write(paso)
+                            st.markdown(f"[Fuente]({receta['fuente']})")
