@@ -198,9 +198,49 @@ pestanas = st.sidebar.radio("Navegación", ["Nueva receta", "Ver recetas", "Expo
 
 # ========== UI: Nueva receta ==========
 if pestanas == "Nueva receta":
-    # igual a tu versión anterior, se conserva
-    # ...
-    pass
+    st.header("➕ Nueva receta")
+    with st.form("form_nueva_receta", clear_on_submit=False):
+        link = st.text_input("Enlace de Instagram/TikTok", value=st.session_state.link)
+        if st.form_submit_button("📥 Leer descripción del enlace"):
+            caption = get_instagram_caption(link)
+            if caption:
+                parsed = parse_recipe_from_caption(caption)
+                st.session_state.titulo = parsed.get("titulo", "")
+                st.session_state.porciones = parsed.get("porciones", "")
+                st.session_state.tiempo = parsed.get("tiempo", "")
+                st.session_state.ingredientes_text = "\n".join(parsed.get("ingredientes", []))
+                st.session_state.procedimiento_text = "\n".join(parsed.get("procedimiento", []))
+                st.success("Descripción extraída correctamente.")
+            else:
+                st.warning("No se pudo extraer información del enlace.")
+
+        titulo = st.text_input("Título de la receta", value=st.session_state.titulo)
+        porciones = st.text_input("Porciones", value=st.session_state.porciones)
+        tiempo = st.text_input("Tiempo de preparación", value=st.session_state.tiempo)
+        ingredientes_text = st.text_area("Ingredientes (uno por línea)", value=st.session_state.ingredientes_text)
+        procedimiento_text = st.text_area("Procedimiento (uno por línea)", value=st.session_state.procedimiento_text)
+
+        categoria = st.selectbox("Categoría", ["Seleccionar opción", "Desayuno", "Almuerzo", "Cena", "Postres", "Snacks", "Bebidas"], index=0)
+
+        submitted = st.form_submit_button("💾 Guardar receta")
+        if submitted:
+            if not titulo.strip():
+                st.error("El título es obligatorio.")
+            elif categoria == "Seleccionar opción":
+                st.error("Debes seleccionar una categoría válida.")
+            else:
+                nueva = {
+                    "titulo": titulo.strip(),
+                    "porciones": porciones.strip(),
+                    "tiempo": tiempo.strip(),
+                    "ingredientes": [x.strip() for x in ingredientes_text.split("\n") if x.strip()],
+                    "procedimiento": [x.strip() for x in procedimiento_text.split("\n") if x.strip()],
+                    "categoria": categoria
+                }
+                recetas = cargar_recetas()
+                recetas.append(nueva)
+                guardar_recetas(recetas)
+                st.success("Receta guardada exitosamente.")
 
 # ========== UI: Ver recetas ==========
 elif pestanas == "Ver recetas":
@@ -227,10 +267,29 @@ elif pestanas == "Ver recetas":
 
 # ========== UI: Exportar recetas ==========
 elif pestanas == "Exportar recetas":
-    # igual a tu versión original
-    pass
+    st.header("📤 Exportar recetas")
+    recetas = cargar_recetas()
+    if not recetas:
+        st.info("No hay recetas para exportar.")
+    else:
+        if st.button("📄 Exportar a Word"):
+            nombre_archivo = exportar_recetas_a_word(recetas)
+            with open(nombre_archivo, "rb") as f:
+                st.download_button("⬇️ Descargar archivo", f, file_name=nombre_archivo)
 
 # ========== UI: Plan mensual ==========
 elif pestanas == "Plan mensual":
-    # igual a tu versión original
-    pass
+    st.header("📅 Plan mensual de recetas")
+    recetas = cargar_recetas()
+    if not recetas:
+        st.info("Debes tener recetas guardadas para generar un plan mensual.")
+    else:
+        hoy = date.today()
+        mes_actual = hoy.month
+        anio_actual = hoy.year
+        dias_en_mes = calendar.monthrange(anio_actual, mes_actual)[1]
+        plan = {d: random.choice(recetas) for d in range(1, dias_en_mes+1)}
+
+        for d in range(1, dias_en_mes+1):
+            r = plan[d]
+            st.write(f"**{d}/{mes_actual}/{anio_actual}** → {r.get('titulo')} ({r.get('categoria')})")
