@@ -5,13 +5,8 @@ import re
 import json
 import os
 
-# Archivo para guardar las recetas
 ARCHIVO_JSON = "recetas.json"
-
-# Categorías disponibles
 CATEGORIAS = ["sopa", "proteina", "arroz", "guarnicion", "ensalada", "postre"]
-
-# --- FUNCIONES ---
 
 def extraer_receta(texto):
     texto = texto.replace("\r", "").replace("\n", "\n")
@@ -23,7 +18,6 @@ def extraer_receta(texto):
 
     recolectando_ingredientes = False
 
-    # Intentar sacar título del principio, si está todo en mayúscula o tras 'INGREDIENTES:' salteamos
     if lineas:
         posible_titulo = lineas[0].strip()
         if 3 < len(posible_titulo) < 50 and "ingredientes" not in posible_titulo.lower():
@@ -89,8 +83,6 @@ def guardar_receta(receta):
     with open(ARCHIVO_JSON, "w", encoding="utf-8") as f:
         json.dump(recetas, f, ensure_ascii=False, indent=4)
 
-# --- INTERFAZ ---
-
 st.title("📖 Recetario Online")
 
 pestanas = st.sidebar.radio("Navegar por:", ["Agregar receta", "Ver recetas"])
@@ -103,12 +95,12 @@ if pestanas == "Agregar receta":
         (titulo_extraido, ingredientes, procedimiento, porciones), fuente = extraer_texto_desde_link(link)
 
         if not titulo_extraido:
-            titulo_extraido = st.text_input("Nombre de la receta", "")
+            titulo_extraido = st.text_input("Nombre de la receta")
 
         else:
             st.write(f"**Título extraído:** {titulo_extraido}")
 
-        categoria = st.selectbox("Categoría", CATEGORIAS)
+        categoria = st.selectbox("Categoría", ["Seleccionar opción"] + CATEGORIAS)
 
         st.write(f"**Porciones:** {porciones}")
         st.write("**Ingredientes:**")
@@ -120,11 +112,13 @@ if pestanas == "Agregar receta":
 
         guardar = st.button("Guardar receta")
         if guardar:
-            if not titulo_extraido:
-                st.error("Por favor, ingresa un nombre para la receta.")
+            if not titulo_extraido or titulo_extraido.strip() == "":
+                st.error("❌ Por favor, ingresa un nombre para la receta.")
+            elif categoria == "Seleccionar opción":
+                st.error("❌ Por favor, selecciona una categoría.")
             else:
                 receta_guardar = {
-                    "titulo": titulo_extraido,
+                    "titulo": titulo_extraido.strip(),
                     "categoria": categoria,
                     "porciones": porciones,
                     "ingredientes": ingredientes,
@@ -142,23 +136,10 @@ elif pestanas == "Ver recetas":
         st.info("No hay recetas guardadas aún.")
     else:
         categorias_encontradas = sorted(list(set(r["categoria"] for r in recetas)))
-        categoria_seleccionada = st.selectbox("Filtrar por categoría", ["Todas"] + categorias_encontradas)
+        categoria_seleccionada = st.selectbox("Selecciona categoría", ["Seleccionar opción"] + categorias_encontradas)
 
-        if categoria_seleccionada == "Todas":
-            recetas_filtradas = recetas
-        else:
-            recetas_filtradas = [r for r in recetas if r["categoria"] == categoria_seleccionada]
+        if categoria_seleccionada == "Seleccionar opción":
+            st.info("Por favor, selecciona una categoría
 
-        for receta in recetas_filtradas:
-            with st.expander(f'{receta["titulo"]}'):
-                st.markdown(f"**Categoría:** {receta['categoria'].capitalize()}")
-                st.markdown(f"**Porciones:** {receta['porciones']}")
-                st.markdown("**Ingredientes:**")
-                for ing in receta["ingredientes"]:
-                    st.write("-", ing)
-                st.markdown("**Procedimiento:**")
-                for paso in receta["procedimiento"]:
-                    st.write(paso)
-                st.markdown(f"[Fuente]({receta['fuente']})")
 
 
