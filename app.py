@@ -384,7 +384,7 @@ if pestanas == "Nueva receta":
 
     col_a, col_b, col_c = st.columns([1,1,1])
     with col_a:
-        if st.button("Leer descripción del enlace"):
+        if col_a.button("Leer descripción del enlace"):
             link_val = st.session_state.get("link", "").strip()
             if not link_val:
                 st.warning("Ingresa primero un enlace.")
@@ -403,7 +403,7 @@ if pestanas == "Nueva receta":
                 else:
                     st.warning("No se pudo leer automáticamente la descripción (o no es Instagram público). Pega el texto manualmente abajo.")
     with col_b:
-        if st.button("Rellenar desde el texto de abajo"):
+        if col_b.button("Rellenar desde el texto de abajo"):
             cap = st.session_state.get("caption_manual", "")
             if cap.strip():
                 parsed = parse_recipe_from_caption(cap)
@@ -416,7 +416,7 @@ if pestanas == "Nueva receta":
             else:
                 st.warning("No hay texto para analizar.")
     with col_c:
-        if st.button("Limpiar formulario"):
+        if col_c.button("Limpiar formulario"):
             st.session_state.caption_manual = ""
             st.session_state.titulo = ""
             st.session_state.porciones = "No especificado"
@@ -491,15 +491,18 @@ elif pestanas == "Ver recetas":
                     st.write("No hay recetas en esta categoría.")
                 else:
                     for idx in cat_indices[cat]:
-                        r = recetas[idx]
-                        # cada receta en su propio expander para ver detalles al instante
+                        # recargar a cada ciclo para reducir posibilidades de desincronía
+                        recetas_local = cargar_recetas()
+                        # si la lista cambió y el índice ya no es válido, saltar
+                        if idx >= len(recetas_local):
+                            continue
+                        r = recetas_local[idx]
                         with st.expander(r.get("titulo", "(sin título)")):
                             # botones arriba (Eliminar / Editar)
                             cdel, cedit, csp = st.columns([1,1,6])
                             with cdel:
                                 if st.button("🗑️ Eliminar", key=f"del_{idx}"):
                                     titulo_elim = r.get("titulo", "(sin título)")
-                                    # recargar para evitar desincronía
                                     all_rec = cargar_recetas()
                                     # si el índice sigue válido, eliminar
                                     if idx < len(all_rec):
@@ -513,31 +516,31 @@ elif pestanas == "Ver recetas":
                                         st.session_state.view_idx = None
                                     if st.session_state.get("editing_idx") == idx:
                                         st.session_state.editing_idx = None
-                                    st.experimental_rerun()
+                                    # no st.experimental_rerun: la interacción provoca rerun automáticamente
                             with cedit:
                                 if st.button("✏️ Editar", key=f"edit_{idx}"):
                                     st.session_state.editing_idx = idx
-                                    st.experimental_rerun()
+                                    # la interacción provoca rerun
 
-                            # Si se está editando esta receta, mostrar formulario de edición
+                            # Si se está editando esta receta, mostrar formulario de edición (usamos form para guardar)
                             if st.session_state.get("editing_idx") == idx:
-                                st.info("Editando receta — modifica los campos y guarda o cancela.")
+                                st.info("Editando receta — modifica los campos y presiona Guardar o Cancelar.")
                                 # prefill from current data (use keys per idx)
-                                nt = st.text_input("Título", value=r.get("titulo",""), key=f"edit_titulo_{idx}")
-                                ncat = st.selectbox(
-                                    "Categoría",
-                                    ["Sopa","Proteína","Arroz","Guarnición","Postre"],
-                                    index=["Sopa","Proteína","Arroz","Guarnición","Postre"].index(r.get("categoria","Proteína")),
-                                    key=f"edit_categoria_{idx}"
-                                )
-                                npor = st.text_input("Porciones", value=r.get("porciones","No especificado"), key=f"edit_por_{idx}")
-                                ntiempo = st.text_input("Tiempo", value=r.get("tiempo",""), key=f"edit_time_{idx}")
-                                ning = st.text_area("Ingredientes (uno por línea)", value="\n".join(r.get("ingredientes",[])), key=f"edit_ing_{idx}")
-                                nproc = st.text_area("Procedimiento (uno por línea)", value="\n".join(r.get("procedimiento",[])), key=f"edit_proc_{idx}")
+                                with st.form(key=f"edit_form_{idx}", clear_on_submit=False):
+                                    nt = st.text_input("Título", value=r.get("titulo",""), key=f"edit_titulo_{idx}")
+                                    ncat = st.selectbox(
+                                        "Categoría",
+                                        ["Sopa","Proteína","Arroz","Guarnición","Postre"],
+                                        index=["Sopa","Proteína","Arroz","Guarnición","Postre"].index(r.get("categoria","Proteína")),
+                                        key=f"edit_categoria_{idx}"
+                                    )
+                                    npor = st.text_input("Porciones", value=r.get("porciones","No especificado"), key=f"edit_por_{idx}")
+                                    ntiempo = st.text_input("Tiempo", value=r.get("tiempo",""), key=f"edit_time_{idx}")
+                                    ning = st.text_area("Ingredientes (uno por línea)", value="\n".join(r.get("ingredientes",[])), key=f"edit_ing_{idx}")
+                                    nproc = st.text_area("Procedimiento (uno por línea)", value="\n".join(r.get("procedimiento",[])), key=f"edit_proc_{idx}")
 
-                                cc1, cc2 = st.columns([1,1])
-                                with cc1:
-                                    if st.button("💾 Guardar cambios", key=f"save_edit_{idx}"):
+                                    submitted = st.form_submit_button("💾 Guardar cambios")
+                                    if submitted:
                                         if not nt.strip():
                                             st.error("El título no puede quedar vacío.")
                                         else:
@@ -552,13 +555,12 @@ elif pestanas == "Ver recetas":
                                                 guardar_recetas(all_rec)
                                                 st.success("Receta actualizada.")
                                                 st.session_state.editing_idx = None
-                                                st.experimental_rerun()
+                                                # la sumisión del form provoca rerun automáticamente
                                             else:
                                                 st.error("No se pudo localizar la receta para actualizar.")
-                                with cc2:
-                                    if st.button("Cancelar edición", key=f"cancel_edit_{idx}"):
-                                        st.session_state.editing_idx = None
-                                        st.experimental_rerun()
+                                # Cancelar (botón fuera del form para evitar confusión)
+                                if st.button("Cancelar edición", key=f"cancel_edit_{idx}"):
+                                    st.session_state.editing_idx = None
                             else:
                                 # mostrar detalle completo (porciones, ingredientes, procedimiento)
                                 st.write(f"**Porciones:** {r.get('porciones','No especificado')}")
@@ -581,16 +583,63 @@ elif pestanas == "Exportar recetas":
     if not recetas:
         st.info("No hay recetas guardadas para exportar.")
     else:
-        # Export JSON
-        if st.button("⬇️ Descargar JSON (recetas.json)"):
-            data_str = json.dumps(recetas, indent=4, ensure_ascii=False)
-            st.download_button("Descargar JSON", data=data_str, file_name=RECETAS_FILE, mime="application/json")
+        # Selección de categorías (múltiples)
+        categorias_fijas = ["Sopa", "Proteína", "Arroz", "Guarnición", "Postre"]
+        selected_cats = st.multiselect("Selecciona categorías a incluir (puedes elegir varias):", categorias_fijas, default=categorias_fijas)
 
-        # Export Word
-        if st.button("📄 Exportar a Word (recetario.docx)"):
-            buffer = exportar_recetas_a_word(recetas)
-            st.download_button("Descargar Word", data=buffer.getvalue(), file_name="recetario.docx",
-                               mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        # Construir lista de opciones de recetas filtradas por categorías seleccionadas
+        opciones_map: Dict[str, int] = {}
+        opciones_labels: List[str] = []
+        for i, r in enumerate(recetas):
+            cat = r.get("categoria", "Sin categoría")
+            if cat in selected_cats:
+                label = f"{cat} — {r.get('titulo','(sin título)')} ({r.get('fecha','')})"
+                opciones_map[label] = i
+                opciones_labels.append(label)
+
+        select_all = st.checkbox("Seleccionar todas las recetas de las categorías escogidas", value=False)
+
+        selected_labels: List[str] = []
+        if select_all:
+            selected_labels = list(opciones_labels)
+            st.write(f"Se seleccionaron {len(selected_labels)} recetas.")
+        else:
+            selected_labels = st.multiselect("Selecciona recetas (puedes elegir varias):", opciones_labels)
+
+        # Botones de exportación
+        colj, colk = st.columns([1,1])
+        with colj:
+            if st.button("📄 Exportar seleccionadas a Word"):
+                if not selected_labels:
+                    st.error("Selecciona al menos una receta o marca 'Seleccionar todas' para exportar.")
+                else:
+                    indices = [opciones_map[lbl] for lbl in selected_labels]
+                    a_exportar = [recetas[i] for i in indices]
+                    buffer = exportar_recetas_a_word(a_exportar)
+                    st.download_button("⬇️ Descargar Word (selección)", data=buffer.getvalue(), file_name="recetas_seleccionadas.docx",
+                                       mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        with colk:
+            if st.button("⬇️ Exportar seleccionadas a JSON"):
+                if not selected_labels:
+                    st.error("Selecciona al menos una receta o marca 'Seleccionar todas' para exportar.")
+                else:
+                    indices = [opciones_map[lbl] for lbl in selected_labels]
+                    a_exportar = [recetas[i] for i in indices]
+                    data_str = json.dumps(a_exportar, indent=4, ensure_ascii=False)
+                    st.download_button("Descargar JSON (selección)", data=data_str, file_name="recetas_seleccionadas.json", mime="application/json")
+
+        # Opción rápida: Exportar todas las recetas de las categorías seleccionadas sin elegir manualmente las recetas
+        if st.button("📄 Exportar todas las categorías seleccionadas a Word"):
+            if not selected_cats:
+                st.error("Selecciona al menos una categoría.")
+            else:
+                a_exportar = [r for r in recetas if r.get("categoria") in selected_cats]
+                if not a_exportar:
+                    st.info("No hay recetas en las categorías seleccionadas.")
+                else:
+                    buffer = exportar_recetas_a_word(a_exportar)
+                    st.download_button("⬇️ Descargar Word (categorías)", data=buffer.getvalue(), file_name="recetas_por_categorias.docx",
+                                       mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 # ========== UI: Plan mensual ==========
 elif pestanas == "Plan mensual":
