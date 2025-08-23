@@ -88,7 +88,6 @@ def ig_shortcode_from_url(url: str) -> Optional[str]:
         return None
 
 def get_instagram_caption(url: str) -> str:
-    """Intenta leer la descripción del post de Instagram usando instaloader o meta tags"""
     if HAS_INSTALOADER:
         try:
             L = instaloader.Instaloader(
@@ -121,28 +120,20 @@ def parse_recipe_from_caption(caption: str) -> Dict[str, Any]:
 
     lines = [l.strip() for l in caption.split("\n") if l.strip()]
     rec["titulo"] = lines[0] if lines else ""
-
-    # Extraer porciones
     m_serves = re.search(r"(Serves|Porciones|Rinde)\s*[:\-]?\s*([0-9]+)", caption, flags=re.IGNORECASE)
     if m_serves:
         rec["porciones"] = m_serves.group(2).strip()
-    # Extraer tiempo
     m_time = re.search(r"(Takes|Tiempo)\s*[:\-]?\s*([0-9]+\s*\w+)", caption, flags=re.IGNORECASE)
     if m_time:
         rec["tiempo"] = m_time.group(2).strip()
-
-    # Ingredientes por encabezado
     ing_split = re.split(r"(Ingredientes?:|Ingredients?:|✍🏼Ingredientes|👨‍🍳INGREDIENTES|❶ 𝐈𝐧𝐠𝐫𝐞𝐝𝐢𝐞𝐧𝐭𝐞𝐬:)", caption, flags=re.IGNORECASE)
     if len(ing_split) >= 2:
         after_ing = "".join(ing_split[1:])
         before_method = re.split(r"(Preparaci[oó]n:|Procedimiento:|Método:|Method:|❷ 𝐏𝐫𝐞𝐩𝐚𝐫𝐚𝐜𝐢[oó]n:)", after_ing, flags=re.IGNORECASE)[0]
         rec["ingredientes"] = [clean_bullet(x) for x in before_method.split("\n") if x.strip()]
-
         method_part = re.split(r"(Preparaci[oó]n:|Procedimiento:|Método:|Method:|❷ 𝐏𝐫𝐞𝐩𝐚𝐫𝐚𝐜𝐢[oó]n:)", after_ing, flags=re.IGNORECASE)
         if len(method_part) >= 2:
             rec["procedimiento"] = [clean_bullet(x) for x in "".join(method_part[1:]).split("\n") if x.strip()]
-
-    # Detectar líneas que parezcan ingredientes si no hay encabezado
     if not rec["ingredientes"]:
         posibles_ingredientes = []
         posibles_procedimiento = []
@@ -153,7 +144,6 @@ def parse_recipe_from_caption(caption: str) -> Dict[str, Any]:
                 posibles_procedimiento.append(clean_bullet(l))
         rec["ingredientes"] = posibles_ingredientes
         rec["procedimiento"] = posibles_procedimiento
-
     return rec
 
 # ========== Sidebar ==========
@@ -166,7 +156,6 @@ pestanas = st.sidebar.radio(
 if pestanas == "Nueva receta":
     st.header("Agregar nueva receta desde enlace (Instagram/TikTok)")
     st.text_input("Ingresa el link del post:", key="link")
-
     col_a, col_b, col_c = st.columns([1,1,1])
     with col_a:
         if st.button("Leer descripción del enlace"):
@@ -199,21 +188,18 @@ if pestanas == "Nueva receta":
         if st.button("Limpiar formulario"):
             init_form_state()
             st.info("Formulario limpio.")
-
     st.text_area("Descripción / receta:", key="caption_manual", height=200)
     st.subheader("📌 Datos de la receta")
     st.text_input("Nombre de la receta:", key="titulo")
     st.text_input("Porciones:", key="porciones")
     st.text_input("Tiempo:", key="tiempo")
-    categorias = ["Seleccionar opción", "Sopa", "Proteína", "Arroz", "Guarnición", "Postre"]
-    st.selectbox("Categoría:", categorias, key="categoria")
-
+    categorias = ["Sopa", "Proteína", "Arroz", "Guarnición", "Postre"]
+    st.selectbox("Categoría:", ["Seleccionar opción"] + categorias, key="categoria")
     col1, col2 = st.columns(2)
     with col1:
         st.text_area("Ingredientes:", key="ingredientes_text", height=200)
     with col2:
         st.text_area("Procedimiento:", key="procedimiento_text", height=200)
-
     if st.button("Guardar receta"):
         if st.session_state.categoria == "Seleccionar opción":
             st.error("❌ Selecciona una categoría válida.")
@@ -239,50 +225,94 @@ if pestanas == "Nueva receta":
 if pestanas == "Ver recetas":
     st.header("📖 Ver recetas guardadas")
     recetas = cargar_recetas()
-    if not recetas:
-        st.info("No hay recetas guardadas.")
-    else:
-        categorias = sorted(list(set(r["categoria"] for r in recetas)))
-        for cat in categorias:
-            with st.expander(f"📂 {cat}", expanded=False):
-                recetas_cat = [r for r in recetas if r["categoria"] == cat]
+    categorias = ["Sopa", "Proteína", "Arroz", "Guarnición", "Postre"]
+    for cat in categorias:
+        with st.expander(f"📂 {cat} ({len([r for r in recetas if r['categoria']==cat])} recetas)", expanded=False):
+            recetas_cat = [r for r in recetas if r["categoria"] == cat]
+            if recetas_cat:
                 for receta in recetas_cat:
-                    if st.button(receta["titulo"], key=f"{cat}_{receta['titulo']}"):
-                        st.session_state.titulo = receta["titulo"]
-                        st.session_state.porciones = receta["porciones"]
-                        st.session_state.tiempo = receta["tiempo"]
-                        st.session_state.ingredientes_text = "\n".join(receta["ingredientes"])
-                        st.session_state.procedimiento_text = "\n".join(receta["procedimiento"])
-                        st.session_state.link = receta.get("fuente", "")
-                        st.session_state.categoria = receta["categoria"]
-                        st.session_state.selected_recipe = receta
+                    with st.expander(f"🍴 {receta['titulo']}", expanded=False):
+                        st.text_input("Porciones:", value=receta["porciones"], key=f"{cat}_{receta['titulo']}_porciones")
+                        st.text_input("Tiempo:", value=receta["tiempo"], key=f"{cat}_{receta['titulo']}_tiempo")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.text_area("Ingredientes:", value="\n".join(receta["ingredientes"]), height=150, key=f"{cat}_{receta['titulo']}_ing")
+                        with col2:
+                            st.text_area("Procedimiento:", value="\n".join(receta["procedimiento"]), height=150, key=f"{cat}_{receta['titulo']}_proc")
+                        col_a, col_b = st.columns([1,1])
+                        with col_a:
+                            if st.button("🗑️ Eliminar receta", key=f"{cat}_{receta['titulo']}_del"):
+                                recetas = [r for r in recetas if r["titulo"] != receta["titulo"] or r["categoria"] != receta["categoria"]]
+                                guardar_recetas(recetas)
+                                st.success("Receta eliminada.")
+                                st.experimental_rerun()
+                        with col_b:
+                            if st.button("✏️ Editar receta", key=f"{cat}_{receta['titulo']}_edit"):
+                                st.session_state.titulo = receta["titulo"]
+                                st.session_state.porciones = receta["porciones"]
+                                st.session_state.tiempo = receta["tiempo"]
+                                st.session_state.ingredientes_text = "\n".join(receta["ingredientes"])
+                                st.session_state.procedimiento_text = "\n".join(receta["procedimiento"])
+                                st.session_state.link = receta.get("fuente", "")
+                                st.session_state.categoria = receta["categoria"]
+                                st.info("Edita los campos en la pestaña 'Nueva receta' y guarda para actualizar.")
 
-        # Mostrar detalles si se seleccionó
-        if "selected_recipe" in st.session_state:
-            receta = st.session_state.selected_recipe
-            st.subheader(f"📌 {receta['titulo']}")
-            st.text_input("Porciones:", value=receta["porciones"], key="view_porciones")
-            st.text_input("Tiempo:", value=receta["tiempo"], key="view_tiempo")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.text_area("Ingredientes:", value="\n".join(receta["ingredientes"]), height=200)
-            with col2:
-                st.text_area("Procedimiento:", value="\n".join(receta["procedimiento"]), height=200)
-            col_a, col_b = st.columns([1,1])
-            with col_a:
-                if st.button("🗑️ Eliminar receta"):
-                    recetas = [r for r in recetas if r["titulo"] != receta["titulo"] or r["categoria"] != receta["categoria"]]
-                    guardar_recetas(recetas)
-                    st.success("Receta eliminada.")
-                    del st.session_state.selected_recipe
-                    st.experimental_rerun()
-            with col_b:
-                if st.button("✏️ Editar receta"):
-                    st.session_state.titulo = receta["titulo"]
-                    st.session_state.porciones = receta["porciones"]
-                    st.session_state.tiempo = receta["tiempo"]
-                    st.session_state.ingredientes_text = "\n".join(receta["ingredientes"])
-                    st.session_state.procedimiento_text = "\n".join(receta["procedimiento"])
-                    st.session_state.link = receta.get("fuente", "")
-                    st.session_state.categoria = receta["categoria"]
-                    st.info("Edita los campos en la pestaña 'Nueva receta' y guarda para actualizar.")
+# ========== Pestaña: Exportar recetas ==========
+if pestanas == "Exportar recetas":
+    st.header("📤 Exportar recetas a DOCX")
+    recetas = cargar_recetas()
+    if not recetas:
+        st.info("No hay recetas para exportar.")
+    else:
+        doc = Document()
+        asegurar_estilos_docx(doc)
+        for receta in recetas:
+            doc.add_paragraph(receta["titulo"], style="Titulo1")
+            doc.add_paragraph(f"Categoría: {receta['categoria']}")
+            doc.add_paragraph(f"Porciones: {receta['porciones']} | Tiempo: {receta['tiempo']}")
+            doc.add_paragraph("Ingredientes:", style="Titulo2")
+            for ing in receta["ingredientes"]:
+                doc.add_paragraph(f"- {ing}")
+            doc.add_paragraph("Procedimiento:", style="Titulo2")
+            for step in receta["procedimiento"]:
+                doc.add_paragraph(f"- {step}")
+            doc.add_paragraph("\n")
+        file_name = f"recetario_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
+        doc.save(file_name)
+        with open(file_name, "rb") as f:
+            st.download_button("💾 Descargar DOCX", f, file_name=file_name)
+
+# ========== Pestaña: Plan mensual ==========
+if pestanas == "Plan mensual":
+    st.header("🗓️ Generador de plan mensual")
+    recetas = cargar_recetas()
+    if not recetas:
+        st.info("No hay recetas disponibles para el plan mensual.")
+    else:
+        dias_semana = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"]
+        seleccion = {}
+        for dia in dias_semana:
+            seleccion[dia] = st.selectbox(f"{dia}:", [""] + [r["titulo"] for r in recetas], key=f"plan_{dia}")
+        if st.button("💾 Exportar plan mensual a DOCX"):
+            doc = Document()
+            asegurar_estilos_docx(doc)
+            doc.add_paragraph("Plan mensual de recetas", style="Titulo1")
+            for dia in dias_semana:
+                receta_sel = next((r for r in recetas if r["titulo"] == seleccion[dia]), None)
+                doc.add_paragraph(dia, style="Titulo2")
+                if receta_sel:
+                    doc.add_paragraph(receta_sel["titulo"])
+                    doc.add_paragraph(f"Categoría: {receta_sel['categoria']}")
+                    doc.add_paragraph(f"Porciones: {receta_sel['porciones']} | Tiempo: {receta_sel['tiempo']}")
+                    doc.add_paragraph("Ingredientes:", style="Titulo3")
+                    for ing in receta_sel["ingredientes"]:
+                        doc.add_paragraph(f"- {ing}")
+                    doc.add_paragraph("Procedimiento:", style="Titulo3")
+                    for step in receta_sel["procedimiento"]:
+                        doc.add_paragraph(f"- {step}")
+                else:
+                    doc.add_paragraph("No asignado")
+            file_name = f"plan_mensual_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
+            doc.save(file_name)
+            with open(file_name, "rb") as f:
+                st.download_button("💾 Descargar DOCX del plan", f, file_name=file_name)
