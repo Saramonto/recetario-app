@@ -76,7 +76,7 @@ def capitalizar_oracion(texto: str) -> str:
     return texto[0].upper() + texto[1:] if texto else texto
 
 def clean_bullet(text: str) -> str:
-    return re.sub(r"^[\-\•\●\·\*✻❖❇️]+\s*", "", text).strip()
+    return re.sub(r"^[\-\•\●\·\*✻❖❇️▪️✍🏼👨‍🍳]+\s*", "", text).strip()
 
 def ig_shortcode_from_url(url: str) -> Optional[str]:
     try:
@@ -89,6 +89,7 @@ def ig_shortcode_from_url(url: str) -> Optional[str]:
         return None
 
 def get_instagram_caption(url: str) -> str:
+    """Intenta leer la descripción del post de Instagram usando instaloader o meta tags"""
     if HAS_INSTALOADER:
         try:
             L = instaloader.Instaloader(
@@ -115,13 +116,13 @@ def get_instagram_caption(url: str) -> str:
     return ""
 
 def parse_recipe_from_caption(caption: str) -> Dict[str, Any]:
+    """Extrae título, porciones, tiempo, ingredientes y procedimiento de un caption"""
     rec = {"titulo": "", "porciones": "", "tiempo": "", "ingredientes": [], "procedimiento": []}
     if not caption:
         return rec
 
-    lines = [l.strip() for l in caption.split("\n")]
-    first_nonempty = next((l for l in lines if l), "")
-    rec["titulo"] = first_nonempty
+    lines = [l.strip() for l in caption.split("\n") if l.strip()]
+    rec["titulo"] = lines[0] if lines else ""
 
     m_serves = re.search(r"(Serves|Porciones|Rinde)\s*[:\-]?\s*([0-9]+)", caption, flags=re.IGNORECASE)
     if m_serves:
@@ -130,14 +131,20 @@ def parse_recipe_from_caption(caption: str) -> Dict[str, Any]:
     if m_time:
         rec["tiempo"] = m_time.group(2).strip()
 
-    ing_split = re.split(r"(Ingredientes?:|Ingredients?:)", caption, flags=re.IGNORECASE)
-    if len(ing_split) >= 3:
-        after_ing = "".join(ing_split[2:])
-        before_method = re.split(r"(Preparaci[oó]n:|Procedimiento:|Método:|Method:)", after_ing, flags=re.IGNORECASE)[0]
+    # Ingredientes
+    ing_split = re.split(r"(Ingredientes?:|Ingredients?:|✍🏼Ingredientes|👨‍🍳INGREDIENTES|❶ 𝐈𝐧𝐠𝐫𝐞𝐝𝐢𝐞𝐧𝐭𝐞𝐬:)", caption, flags=re.IGNORECASE)
+    if len(ing_split) >= 2:
+        after_ing = "".join(ing_split[1:])
+        before_method = re.split(r"(Preparaci[oó]n:|Procedimiento:|Método:|Method:|❷ 𝐏𝐫𝐞𝐩𝐚𝐫𝐚𝐜𝐢[oó]n:)", after_ing, flags=re.IGNORECASE)[0]
         rec["ingredientes"] = [clean_bullet(x) for x in before_method.split("\n") if x.strip()]
-        method_part = re.split(r"(Preparaci[oó]n:|Procedimiento:|Método:|Method:)", after_ing, flags=re.IGNORECASE)
-        if len(method_part) >= 3:
-            rec["procedimiento"] = [clean_bullet(x) for x in "".join(method_part[2:]).split("\n") if x.strip()]
+
+        method_part = re.split(r"(Preparaci[oó]n:|Procedimiento:|Método:|Method:|❷ 𝐏𝐫𝐞𝐩𝐚𝐫𝐚𝐜𝐢[oó]n:)", after_ing, flags=re.IGNORECASE)
+        if len(method_part) >= 2:
+            rec["procedimiento"] = [clean_bullet(x) for x in "".join(method_part[1:]).split("\n") if x.strip()]
+
+    # Si no encuentra ingredientes con encabezados especiales, intentar dividir todo
+    if not rec["ingredientes"] and not rec["procedimiento"]:
+        rec["procedimiento"] = [clean_bullet(x) for x in lines[1:] if x.strip()]
 
     return rec
 
@@ -147,7 +154,7 @@ pestanas = st.sidebar.radio(
     ["Nueva receta", "Ver recetas", "Exportar recetas", "Plan mensual"]
 )
 
-# ========== Nueva receta ==========
+# ========== Pestaña: Nueva receta ==========
 if pestanas == "Nueva receta":
     st.header("Agregar nueva receta desde enlace (Instagram/TikTok)")
     st.text_input("Ingresa el link del post:", key="link")
@@ -219,3 +226,6 @@ if pestanas == "Nueva receta":
             recetas.append(nueva)
             guardar_recetas(recetas)
             st.success("✅ Receta guardada. Los datos se mantienen en el formulario.")
+
+# ========== Pestañas futuras: Ver recetas, Exportar recetas, Plan mensual ==========
+# Puedes agregar aquí el código para manejar cada pestaña
