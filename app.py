@@ -3,7 +3,6 @@ import streamlit as st
 import re
 import json
 import os
-import calendar
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 import requests
@@ -124,14 +123,16 @@ def parse_recipe_from_caption(caption: str) -> Dict[str, Any]:
     lines = [l.strip() for l in caption.split("\n") if l.strip()]
     rec["titulo"] = lines[0] if lines else ""
 
+    # Extraer porciones
     m_serves = re.search(r"(Serves|Porciones|Rinde)\s*[:\-]?\s*([0-9]+)", caption, flags=re.IGNORECASE)
     if m_serves:
         rec["porciones"] = m_serves.group(2).strip()
+    # Extraer tiempo
     m_time = re.search(r"(Takes|Tiempo)\s*[:\-]?\s*([0-9]+\s*\w+)", caption, flags=re.IGNORECASE)
     if m_time:
         rec["tiempo"] = m_time.group(2).strip()
 
-    # Ingredientes
+    # Intentar encontrar ingredientes por encabezado
     ing_split = re.split(r"(Ingredientes?:|Ingredients?:|✍🏼Ingredientes|👨‍🍳INGREDIENTES|❶ 𝐈𝐧𝐠𝐫𝐞𝐝𝐢𝐞𝐧𝐭𝐞𝐬:)", caption, flags=re.IGNORECASE)
     if len(ing_split) >= 2:
         after_ing = "".join(ing_split[1:])
@@ -142,9 +143,18 @@ def parse_recipe_from_caption(caption: str) -> Dict[str, Any]:
         if len(method_part) >= 2:
             rec["procedimiento"] = [clean_bullet(x) for x in "".join(method_part[1:]).split("\n") if x.strip()]
 
-    # Si no encuentra ingredientes con encabezados especiales, intentar dividir todo
-    if not rec["ingredientes"] and not rec["procedimiento"]:
-        rec["procedimiento"] = [clean_bullet(x) for x in lines[1:] if x.strip()]
+    # Si no hay encabezado de ingredientes, detectar líneas que parezcan ingredientes
+    if not rec["ingredientes"]:
+        posibles_ingredientes = []
+        posibles_procedimiento = []
+        for l in lines[1:]:
+            # Patrón: empieza con cantidad (número, fracción, medida) y palabra
+            if re.match(r"^(\d+\/?\d*\s?(g|kg|ml|l|cucharad[ao]s?|tazas?|cdas?|cdtas?|pizca)?\s+.+)", l, flags=re.IGNORECASE):
+                posibles_ingredientes.append(clean_bullet(l))
+            else:
+                posibles_procedimiento.append(clean_bullet(l))
+        rec["ingredientes"] = posibles_ingredientes
+        rec["procedimiento"] = posibles_procedimiento
 
     return rec
 
@@ -226,6 +236,3 @@ if pestanas == "Nueva receta":
             recetas.append(nueva)
             guardar_recetas(recetas)
             st.success("✅ Receta guardada. Los datos se mantienen en el formulario.")
-
-# ========== Pestañas futuras: Ver recetas, Exportar recetas, Plan mensual ==========
-# Puedes agregar aquí el código para manejar cada pestaña
