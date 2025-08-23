@@ -141,19 +141,19 @@ def parse_recipe_from_caption(caption: str) -> Dict[str, Any]:
     if m_time:
         rec["tiempo"] = m_time.group(2).strip()
 
-    # Detectar ingredientes y preparación en ES/EN
-    ing_split = re.split(r"(Ingredients?:|Ingredientes?:)", caption, flags=re.IGNORECASE)
+    # 🔹 Detección extendida de ingredientes con símbolos especiales (❶, ✻, etc.)
+    ing_split = re.split(r"(❶|Ingredientes?:|Ingredients?:|𝐈𝐧𝐠𝐫𝐞𝐝𝐢𝐞𝐧𝐭𝐞𝐬?:)", caption, flags=re.IGNORECASE)
     if len(ing_split) >= 3:
         after_ing = "".join(ing_split[2:])
-        before_method = re.split(r"(Method:|Preparaci[oó]n:|Procedimiento:|Método:)", after_ing, flags=re.IGNORECASE)[0]
+        before_method = re.split(r"(❷|Method:|Preparaci[oó]n:|Procedimiento:|Método:)", after_ing, flags=re.IGNORECASE)[0]
         rec["ingredientes"] = [clean_bullet(x) for x in before_method.split("\n") if x.strip()]
-        method_part = re.split(r"(Method:|Preparaci[oó]n:|Procedimiento:|Método:|❷)", after_ing, flags=re.IGNORECASE)
+        method_part = re.split(r"(❷|Method:|Preparaci[oó]n:|Procedimiento:|Método:)", after_ing, flags=re.IGNORECASE)
         if len(method_part) >= 4:
             rec["procedimiento"] = [clean_bullet(x) for x in "".join(method_part[3:]).split("\n") if x.strip()]
 
-    # Si todavía no detecta procedimiento, buscar marcadores como "❷"
+    # Si todavía no detecta procedimiento
     if not rec["procedimiento"]:
-        proc_match = re.split(r"(Preparaci[oó]n:|Procedimiento:|❷)", caption, flags=re.IGNORECASE)
+        proc_match = re.split(r"(❷|Preparaci[oó]n:|Procedimiento:|Método:)", caption, flags=re.IGNORECASE)
         if len(proc_match) >= 3:
             rec["procedimiento"] = [clean_bullet(x) for x in "".join(proc_match[2:]).split("\n") if x.strip()]
 
