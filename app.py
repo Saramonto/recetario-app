@@ -3,16 +3,14 @@ import streamlit as st
 import re
 import json
 import os
-import random
 import calendar
-from datetime import date, datetime
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 import requests
 from bs4 import BeautifulSoup
 from docx import Document
 from docx.shared import Pt
 from docx.enum.style import WD_STYLE_TYPE
-from io import BytesIO
 
 # Intenta cargar instaloader (para extraer captions de Instagram)
 try:
@@ -25,7 +23,7 @@ except Exception:
 st.set_page_config(page_title="Recetario + Plan mensual", page_icon="🍽️", layout="wide")
 st.title("📚 Recetario desde Instagram/TikTok + 📅 Plan mensual")
 
-# ---------- Inicialización de estado seguro ----------
+# ---------- Inicialización de estado ----------
 def init_form_state():
     defaults = {
         "link": "",
@@ -36,8 +34,6 @@ def init_form_state():
         "ingredientes_text": "",
         "procedimiento_text": "",
         "categoria": "Seleccionar opción",
-        "view_idx": None,
-        "editing_idx": None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -45,7 +41,7 @@ def init_form_state():
 
 init_form_state()
 
-# ========== Utilidades de almacenamiento ==========
+# ========== Archivos ==========
 RECETAS_FILE = "recetas.json"
 
 def cargar_recetas(nombre_archivo: str = RECETAS_FILE) -> List[Dict[str, Any]]:
@@ -54,9 +50,7 @@ def cargar_recetas(nombre_archivo: str = RECETAS_FILE) -> List[Dict[str, Any]]:
     with open(nombre_archivo, "r", encoding="utf-8") as f:
         try:
             data = json.load(f)
-            if isinstance(data, list):
-                return data
-            return []
+            return data if isinstance(data, list) else []
         except json.JSONDecodeError:
             return []
 
@@ -77,11 +71,9 @@ def asegurar_estilos_docx(doc: Document):
         s3 = styles.add_style('Titulo3', WD_STYLE_TYPE.PARAGRAPH)
         s3.font.size = Pt(12); s3.font.bold = True
 
-# ========== Helpers de texto y parseo ==========
+# ========== Helpers ==========
 def capitalizar_oracion(texto: str) -> str:
-    if not texto:
-        return texto
-    return texto[0].upper() + texto[1:]
+    return texto[0].upper() + texto[1:] if texto else texto
 
 def clean_bullet(text: str) -> str:
     return re.sub(r"^[\-\•\●\·\*✻❖❇️]+\s*", "", text).strip()
@@ -100,12 +92,9 @@ def get_instagram_caption(url: str) -> str:
     if HAS_INSTALOADER:
         try:
             L = instaloader.Instaloader(
-                download_pictures=False,
-                download_videos=False,
-                download_video_thumbnails=False,
-                download_comments=False,
-                save_metadata=False,
-                compress_json=False
+                download_pictures=False, download_videos=False,
+                download_video_thumbnails=False, download_comments=False,
+                save_metadata=False, compress_json=False
             )
             shortcode = ig_shortcode_from_url(url)
             if shortcode:
@@ -141,31 +130,24 @@ def parse_recipe_from_caption(caption: str) -> Dict[str, Any]:
     if m_time:
         rec["tiempo"] = m_time.group(2).strip()
 
-    # 🔹 Detección extendida de ingredientes con símbolos especiales (❶, ✻, etc.)
-    ing_split = re.split(r"(❶|Ingredientes?:|Ingredients?:|𝐈𝐧𝐠𝐫𝐞𝐝𝐢𝐞𝐧𝐭𝐞𝐬?:)", caption, flags=re.IGNORECASE)
+    ing_split = re.split(r"(Ingredientes?:|Ingredients?:)", caption, flags=re.IGNORECASE)
     if len(ing_split) >= 3:
         after_ing = "".join(ing_split[2:])
-        before_method = re.split(r"(❷|Method:|Preparaci[oó]n:|Procedimiento:|Método:)", after_ing, flags=re.IGNORECASE)[0]
+        before_method = re.split(r"(Preparaci[oó]n:|Procedimiento:|Método:|Method:)", after_ing, flags=re.IGNORECASE)[0]
         rec["ingredientes"] = [clean_bullet(x) for x in before_method.split("\n") if x.strip()]
-        method_part = re.split(r"(❷|Method:|Preparaci[oó]n:|Procedimiento:|Método:)", after_ing, flags=re.IGNORECASE)
-        if len(method_part) >= 4:
-            rec["procedimiento"] = [clean_bullet(x) for x in "".join(method_part[3:]).split("\n") if x.strip()]
-
-    # Si todavía no detecta procedimiento
-    if not rec["procedimiento"]:
-        proc_match = re.split(r"(❷|Preparaci[oó]n:|Procedimiento:|Método:)", caption, flags=re.IGNORECASE)
-        if len(proc_match) >= 3:
-            rec["procedimiento"] = [clean_bullet(x) for x in "".join(proc_match[2:]).split("\n") if x.strip()]
+        method_part = re.split(r"(Preparaci[oó]n:|Procedimiento:|Método:|Method:)", after_ing, flags=re.IGNORECASE)
+        if len(method_part) >= 3:
+            rec["procedimiento"] = [clean_bullet(x) for x in "".join(method_part[2:]).split("\n") if x.strip()]
 
     return rec
 
-# ========== UI: Sidebar ==========
+# ========== Sidebar ==========
 pestanas = st.sidebar.radio(
     "Navegación",
     ["Nueva receta", "Ver recetas", "Exportar recetas", "Plan mensual"]
 )
 
-# ========== UI: Nueva receta ==========
+# ========== Nueva receta ==========
 if pestanas == "Nueva receta":
     st.header("Agregar nueva receta desde enlace (Instagram/TikTok)")
     st.text_input("Ingresa el link del post:", key="link")
@@ -179,12 +161,12 @@ if pestanas == "Nueva receta":
                 if caption:
                     st.session_state.caption_manual = caption
                     parsed = parse_recipe_from_caption(caption)
-                    if parsed.get("titulo"): st.session_state.titulo = parsed["titulo"]
-                    if parsed.get("porciones"): st.session_state.porciones = parsed["porciones"]
-                    if parsed.get("tiempo"): st.session_state.tiempo = parsed["tiempo"]
-                    if parsed.get("ingredientes"): st.session_state.ingredientes_text = "\n".join(parsed["ingredientes"])
-                    if parsed.get("procedimiento"): st.session_state.procedimiento_text = "\n".join(parsed["procedimiento"])
-                    st.success("Descripción leída y campos rellenados.")
+                    st.session_state.titulo = parsed.get("titulo", "")
+                    st.session_state.porciones = parsed.get("porciones", "No especificado")
+                    st.session_state.tiempo = parsed.get("tiempo", "")
+                    st.session_state.ingredientes_text = "\n".join(parsed.get("ingredientes", []))
+                    st.session_state.procedimiento_text = "\n".join(parsed.get("procedimiento", []))
+                    st.success("Descripción leída y campos actualizados.")
                 else:
                     st.warning("No se pudo leer la descripción.")
     with col_b:
@@ -192,21 +174,15 @@ if pestanas == "Nueva receta":
             cap = st.session_state.get("caption_manual", "")
             if cap.strip():
                 parsed = parse_recipe_from_caption(cap)
-                if parsed.get("titulo"): st.session_state.titulo = parsed["titulo"]
-                if parsed.get("porciones"): st.session_state.porciones = parsed["porciones"]
-                if parsed.get("tiempo"): st.session_state.tiempo = parsed["tiempo"]
-                if parsed.get("ingredientes"): st.session_state.ingredientes_text = "\n".join(parsed["ingredientes"])
-                if parsed.get("procedimiento"): st.session_state.procedimiento_text = "\n".join(parsed["procedimiento"])
-                st.success("Campos rellenados desde el texto.")
+                st.session_state.titulo = parsed.get("titulo", "")
+                st.session_state.porciones = parsed.get("porciones", "No especificado")
+                st.session_state.tiempo = parsed.get("tiempo", "")
+                st.session_state.ingredientes_text = "\n".join(parsed.get("ingredientes", []))
+                st.session_state.procedimiento_text = "\n".join(parsed.get("procedimiento", []))
+                st.success("Campos actualizados desde el texto.")
     with col_c:
         if st.button("Limpiar formulario"):
-            st.session_state.caption_manual = ""
-            st.session_state.titulo = ""
-            st.session_state.porciones = "No especificado"
-            st.session_state.tiempo = ""
-            st.session_state.ingredientes_text = ""
-            st.session_state.procedimiento_text = ""
-            st.session_state.categoria = "Seleccionar opción"
+            init_form_state()
             st.info("Formulario limpio.")
 
     st.text_area("Descripción / receta:", key="caption_manual", height=200)
@@ -242,4 +218,4 @@ if pestanas == "Nueva receta":
             }
             recetas.append(nueva)
             guardar_recetas(recetas)
-            st.success("✅ Receta guardada. (El formulario conserva tus datos)")
+            st.success("✅ Receta guardada. Los datos se mantienen en el formulario.")
