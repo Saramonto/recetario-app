@@ -3,7 +3,6 @@ import streamlit as st
 import re
 import json
 import os
-import random
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 import requests
@@ -34,6 +33,7 @@ def init_form_state():
         "ingredientes_text": "",
         "procedimiento_text": "",
         "categoria": "Seleccionar opción",
+        "notas_plan": "",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -265,26 +265,13 @@ if pestanas == "Exportar recetas":
     if not recetas:
         st.info("No hay recetas para exportar.")
     else:
-        opciones_export = ["Todas las recetas"] + ["Por categoría"] + ["Seleccionar recetas"]
-        seleccion_export = st.radio("Selecciona opción de exportación:", opciones_export)
-        
-        recetas_a_exportar = []
-        if seleccion_export=="Todas las recetas":
-            recetas_a_exportar = recetas
-        elif seleccion_export=="Por categoría":
-            cat_sel = st.selectbox("Selecciona categoría:", [""] + ["Sopa", "Proteína", "Arroz", "Guarnición", "Ensalada", "Postre"])
-            if cat_sel:
-                recetas_a_exportar = [r for r in recetas if r["categoria"]==cat_sel]
-        elif seleccion_export=="Seleccionar recetas":
-            titulos = [r["titulo"] for r in recetas]
-            titulos_sel = st.multiselect("Selecciona recetas:", titulos)
-            recetas_a_exportar = [r for r in recetas if r["titulo"] in titulos_sel]
-        
-        if recetas_a_exportar:
-            if st.button("💾 Exportar a DOCX"):
+        # Botones para exportar
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("💾 Descargar todas las recetas"):
                 doc = Document()
                 asegurar_estilos_docx(doc)
-                for receta in recetas_a_exportar:
+                for receta in recetas:
                     doc.add_paragraph(receta["titulo"], style="Titulo1")
                     doc.add_paragraph(f"Categoría: {receta['categoria']}")
                     doc.add_paragraph(f"Porciones: {receta['porciones']} | Tiempo: {receta['tiempo']}")
@@ -300,51 +287,38 @@ if pestanas == "Exportar recetas":
                 with open(file_name, "rb") as f:
                     st.download_button("💾 Descargar DOCX", f, file_name=file_name)
 
-# ========== Pestaña: Plan mensual automático ==========
+# ========== Pestaña: Plan mensual ==========
 if pestanas == "Plan mensual":
-    st.header("🗓️ Generador de plan mensual automático")
+    st.header("🗓️ Plan mensual personalizado")
     recetas = cargar_recetas()
     categorias_plan = ["Sopa", "Proteína", "Arroz", "Guarnición", "Ensalada", "Postre"]
-    dias_semana = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"]
+    dias_mes = list(range(1, 31))  # 30 días del mes
 
     if not recetas:
         st.info("No hay recetas disponibles para generar el plan.")
     else:
-        plan = {}
-        ultima_proteina = None
+        st.subheader("📝 Comentarios o notas del plan mensual")
+        st.text_area("Escribe aquí tus notas antes de generar el plan", key="notas_plan", height=100)
 
-        for dia in dias_semana:
-            plan[dia] = {}
-            for cat in categorias_plan:
-                disponibles = [r for r in recetas if r["categoria"]==cat]
-                if cat=="Proteína" and ultima_proteina:
-                    disponibles = [r for r in disponibles if r["titulo"] != ultima_proteina]
-                if disponibles:
-                    seleccion = random.choice(disponibles)
-                    plan[dia][cat] = seleccion
-                    if cat=="Proteína":
-                        ultima_proteina = seleccion["titulo"]
-                else:
-                    plan[dia][cat] = None
+        # Diccionario para guardar las selecciones
+        plan_usuario = {}
 
-        st.subheader("✅ Plan mensual generado automáticamente")
-        for dia in dias_semana:
-            with st.expander(dia, expanded=False):
+        for dia in dias_mes:
+            with st.expander(f"Día {dia}", expanded=False):
+                plan_usuario[dia] = {}
                 for cat in categorias_plan:
-                    receta_sel = plan[dia][cat]
-                    if receta_sel:
-                        st.markdown(f"**{cat}:** {receta_sel['titulo']} ({receta_sel['porciones']} | {receta_sel['tiempo']})")
-                    else:
-                        st.markdown(f"**{cat}:** No asignado")
+                    opciones = [""] + [r["titulo"] for r in recetas if r["categoria"]==cat]
+                    plan_usuario[dia][cat] = st.selectbox(f"{cat}:", opciones, key=f"dia{dia}_{cat}")
 
         if st.button("💾 Exportar plan mensual a DOCX"):
             doc = Document()
             asegurar_estilos_docx(doc)
-            doc.add_paragraph("Plan mensual automático de recetas", style="Titulo1")
-            for dia in dias_semana:
-                doc.add_paragraph(dia, style="Titulo2")
+            doc.add_paragraph("Plan mensual personalizado", style="Titulo1")
+            doc.add_paragraph("Notas: " + st.session_state.get("notas_plan",""))
+            for dia in dias_mes:
+                doc.add_paragraph(f"Día {dia}", style="Titulo2")
                 for cat in categorias_plan:
-                    receta_sel = plan[dia][cat]
+                    receta_sel = next((r for r in recetas if r["titulo"]==plan_usuario[dia][cat]), None)
                     doc.add_paragraph(cat, style="Titulo3")
                     if receta_sel:
                         doc.add_paragraph(receta_sel["titulo"])
@@ -357,7 +331,7 @@ if pestanas == "Plan mensual":
                             doc.add_paragraph(f"- {step}")
                     else:
                         doc.add_paragraph("No asignado")
-            file_name = f"plan_mensual_auto_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
+            file_name = f"plan_mensual_usuario_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
             doc.save(file_name)
             with open(file_name, "rb") as f:
-                st.download_button("💾 Descargar DOCX del plan automático", f, file_name=file_name)
+                st.download_button("💾 Descargar DOCX del plan personalizado", f, file_name=file_name)
